@@ -27,10 +27,12 @@ const RTC_CONFIG = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
 const UI_SYNC_INTERVAL_MS = 45;
-const MOVE_EMIT_INTERVAL_MS = 25;
+const MOVE_EMIT_INTERVAL_MS = 20;
 const REMOTE_SMOOTH_BLEND = 0.38;
 const PIXI_MAX_RESOLUTION = 1.25;
-const SELF_CORRECTION_DISTANCE = 36;
+const SELF_CORRECTION_DISTANCE = 140;
+const SELF_HARD_SNAP_DISTANCE = 320;
+const SELF_SERVER_BLEND = 0.2;
 const ROOM_CENTERS = {
   'Room 1': { x: 295, y: 240 },
   'Room 2': { x: 740, y: 240 },
@@ -1250,24 +1252,34 @@ function App() {
 
       let mergedUsers = payload.users;
       if (serverSelf) {
+        const isLocallyMoving = pressedKeysRef.current.size > 0;
         const drift = Math.hypot(
           serverSelf.x - playerPosRef.current.x,
           serverSelf.y - playerPosRef.current.y,
         );
 
-        if (drift <= SELF_CORRECTION_DISTANCE) {
-          mergedUsers = payload.users.map((user) =>
-            user.userId === userIdRef.current
-              ? {
-                  ...user,
-                  x: playerPosRef.current.x,
-                  y: playerPosRef.current.y,
-                }
-              : user,
-          );
-        } else {
+        if (drift > SELF_HARD_SNAP_DISTANCE) {
           playerPosRef.current = { x: serverSelf.x, y: serverSelf.y };
+        } else if (!isLocallyMoving && drift > SELF_CORRECTION_DISTANCE) {
+          playerPosRef.current = {
+            x:
+              playerPosRef.current.x +
+              (serverSelf.x - playerPosRef.current.x) * SELF_SERVER_BLEND,
+            y:
+              playerPosRef.current.y +
+              (serverSelf.y - playerPosRef.current.y) * SELF_SERVER_BLEND,
+          };
         }
+
+        mergedUsers = payload.users.map((user) =>
+          user.userId === userIdRef.current
+            ? {
+                ...user,
+                x: playerPosRef.current.x,
+                y: playerPosRef.current.y,
+              }
+            : user,
+        );
       }
 
       targetUsersRef.current = mergedUsers;
