@@ -14,7 +14,7 @@ const PROXIMITY_RADIUS = Number(process.env.PROXIMITY_RADIUS || 180);
 const EFFECTIVE_PROXIMITY_RADIUS = Math.max(PROXIMITY_RADIUS, 240);
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const SERVER_WORLD_BROADCAST_INTERVAL_MS = 33;
-const SERVER_MOVE_MIN_DISTANCE = 0.6;
+const USER_PERSIST_INTERVAL_MS = 1500;
 const ALLOWED_AVATARS = new Set(['🧑‍🚀', '👩‍🚀', '🛸', '🤖', '🐱', '🦊', '🐼', '🐸']);
 const ALLOWED_STICKERS = new Set(['😀', '😎', '🔥', '✨', '💯', '👋', '🎉', '🚀', '💫', '❤️']);
 const ALLOWED_CHANNELS = new Set(['general-chat', 'doubts-discussion', 'design-room']);
@@ -165,6 +165,16 @@ function emitWorldUpdate(force = false) {
   });
 }
 
+function persistUserSoon(user, isOnline) {
+  const now = Date.now();
+  if (!user.lastPersistAt || now - user.lastPersistAt >= USER_PERSIST_INTERVAL_MS) {
+    user.lastPersistAt = now;
+    persistUser(user, isOnline).catch((error) => {
+      console.error('Mongo persistence failed:', error.message);
+    });
+  }
+}
+
 function emitConnectionsForUser(user) {
   const socket = io.sockets.sockets.get(user.socketId);
   if (!socket) {
@@ -223,7 +233,7 @@ function emitConnectionsForUser(user) {
 
 function connectProximityPair(userA, userB) {
   if (userA.proximityPeerIds.has(userB.userId)) {
-    return;
+    return false;
   }
 
   userA.proximityPeerIds.add(userB.userId);
@@ -235,11 +245,12 @@ function connectProximityPair(userA, userB) {
 
   socketA?.join(pairRoomId);
   socketB?.join(pairRoomId);
+  return true;
 }
 
 function disconnectProximityPair(userA, userB) {
   if (!userA.proximityPeerIds.has(userB.userId)) {
-    return;
+    return false;
   }
 
   userA.proximityPeerIds.delete(userB.userId);
@@ -251,9 +262,11 @@ function disconnectProximityPair(userA, userB) {
 
   socketA?.leave(pairRoomId);
   socketB?.leave(pairRoomId);
+  return true;
 }
 
 function syncProximityForUser(user) {
+  let didChange = false;
   for (const other of usersBySocketId.values()) {
     if (other.socketId === user.socketId) {
       continue;
@@ -261,11 +274,13 @@ function syncProximityForUser(user) {
 
     const inRange = distanceBetween(user, other) < EFFECTIVE_PROXIMITY_RADIUS;
     if (inRange) {
-      connectProximityPair(user, other);
+      didChange = connectProximityPair(user, other) || didChange;
     } else {
-      disconnectProximityPair(user, other);
+      didChange = disconnectProximityPair(user, other) || didChange;
     }
   }
+
+  return didChange;
 }
 
 function cleanupProximityForUser(user) {
@@ -304,8 +319,10 @@ function syncRoomMembership(user) {
     }
   }
 
+  const roomChanged = previousRoomId !== nextRoomId;
   user.roomId = nextRoomId;
   user.roomName = nextRoom?.name || '';
+  return roomChanged;
 }
 
 function emitConnectionsForAllUsers() {
@@ -404,7 +421,7 @@ io.on('connection', (socket) => {
       roomId: '',
       roomName: '',
       proximityPeerIds: new Set(),
-      lastMoveProcessedAt: 0,
+      lastPersistAt: 0,
     };
 
     usersBySocketId.set(socket.id, user);
@@ -424,11 +441,7 @@ io.on('connection', (socket) => {
     emitConnectionsForAllUsers();
     emitWorldUpdate(true);
 
-    try {
-      await persistUser(user, true);
-    } catch (error) {
-      console.error('Mongo persistence failed on register:', error.message);
-    }
+    persistUserSoon(user, true);
 
     if (typeof callback === 'function') {
       callback({ ok: true, userId: user.userId });
@@ -448,32 +461,23 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const now = Date.now();
-    if (now - user.lastMoveProcessedAt < SERVER_WORLD_BROADCAST_INTERVAL_MS) {
+    const wasX = user.x;
+    const wasY = user.y;
+    if (Math.hypot(x - wasX, y - wasY) < 0.05) {
       return;
     }
-
-    const dx = x - user.x;
-    const dy = y - user.y;
-    if (Math.hypot(dx, dy) < SERVER_MOVE_MIN_DISTANCE) {
-      return;
-    }
-
-    user.lastMoveProcessedAt = now;
 
     user.x = x;
     user.y = y;
 
-    syncRoomMembership(user);
-    syncProximityForUser(user);
-    emitConnectionsForAllUsers();
+    const roomChanged = syncRoomMembership(user);
+    const proximityChanged = syncProximityForUser(user);
+    if (roomChanged || proximityChanged) {
+      emitConnectionsForAllUsers();
+    }
     emitWorldUpdate();
 
-    try {
-      await persistUser(user, true);
-    } catch (error) {
-      console.error('Mongo persistence failed on move:', error.message);
-    }
+    persistUserSoon(user, true);
   });
 
   socket.on('chat:send', (payload = {}) => {

@@ -22,9 +22,10 @@ const RTC_CONFIG = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
 const UI_SYNC_INTERVAL_MS = 45;
-const MOVE_EMIT_INTERVAL_MS = 33;
+const MOVE_EMIT_INTERVAL_MS = 25;
 const REMOTE_SMOOTH_BLEND = 0.38;
 const PIXI_MAX_RESOLUTION = 1.25;
+const SELF_CORRECTION_DISTANCE = 36;
 const ROOM_CENTERS = {
   'Room 1': { x: 295, y: 240 },
   'Room 2': { x: 740, y: 240 },
@@ -1193,9 +1194,7 @@ function App() {
       return undefined;
     }
 
-    const socket = io(SERVER_URL, {
-      transports: ['websocket'],
-    });
+    const socket = io(SERVER_URL);
 
     socketRef.current = socket;
 
@@ -1227,22 +1226,41 @@ function App() {
 
     socket.on('world:update', (payload) => {
       const previousUserCount = targetUsersRef.current.length;
-      targetUsersRef.current = payload.users;
+      const serverSelf = payload.users.find(
+        (user) => user.userId === userIdRef.current,
+      );
+
+      let mergedUsers = payload.users;
+      if (serverSelf) {
+        const drift = Math.hypot(
+          serverSelf.x - playerPosRef.current.x,
+          serverSelf.y - playerPosRef.current.y,
+        );
+
+        if (drift <= SELF_CORRECTION_DISTANCE) {
+          mergedUsers = payload.users.map((user) =>
+            user.userId === userIdRef.current
+              ? {
+                  ...user,
+                  x: playerPosRef.current.x,
+                  y: playerPosRef.current.y,
+                }
+              : user,
+          );
+        } else {
+          playerPosRef.current = { x: serverSelf.x, y: serverSelf.y };
+        }
+      }
+
+      targetUsersRef.current = mergedUsers;
 
       const now = performance.now();
       if (
         now - lastUiSyncRef.current > UI_SYNC_INTERVAL_MS ||
-        payload.users.length !== previousUserCount
+        mergedUsers.length !== previousUserCount
       ) {
-        setUsers(payload.users);
+        setUsers(mergedUsers);
         lastUiSyncRef.current = now;
-      }
-
-      const selfUser = payload.users.find(
-        (user) => user.userId === userIdRef.current,
-      );
-      if (selfUser) {
-        playerPosRef.current = { x: selfUser.x, y: selfUser.y };
       }
     });
 
@@ -1506,7 +1524,7 @@ function App() {
 
     const step = (now) => {
       const socket = socketRef.current;
-      const dt = (now - previousFrameTime) / 1000;
+      const dt = Math.min((now - previousFrameTime) / 1000, 0.05);
       previousFrameTime = now;
 
       if (!isMovementEnabled || isUiLocked) {
