@@ -831,43 +831,6 @@
   font-size: 0.8rem;
 }
 
-.bottom-dock {
-  border-radius: 12px;
-  background: #111827;
-  border: 1px solid #374151;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0.45rem;
-}
-
-.bottom-dock .dock-btn {
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  background: rgba(30, 41, 59, 0.9);
-  color: #f1f5f9;
-  border-radius: 8px;
-  font-size: 0.78rem;
-  padding: 0.28rem 0.55rem;
-  cursor: pointer;
-}
-
-.bottom-dock .dock-btn.active {
-  border-color: rgba(125, 211, 252, 0.9);
-  background: rgba(3, 105, 161, 0.55);
-}
-
-.dock-toast {
-  margin: 0.35rem 0 0;
-  font-size: 0.78rem;
-  color: #0f172a;
-  background: rgba(186, 230, 253, 0.7);
-  border: 1px solid rgba(56, 189, 248, 0.7);
-  border-radius: 8px;
-  padding: 0.32rem 0.45rem;
-  text-align: center;
-}
-
 @media (max-width: 1080px) {
   .gather-shell {
     grid-template-columns: 1fr;

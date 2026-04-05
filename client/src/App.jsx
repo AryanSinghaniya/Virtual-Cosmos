@@ -2324,17 +2324,6 @@ function App() {
           </aside>
         </section>
 
-        <footer className="bottom-dock">
-          <button type="button" className={isUiLocked ? 'dock-btn active' : 'dock-btn'} onClick={handleDockLockToggle}>🔒 Lock</button>
-          <button type="button" className="dock-btn" onClick={handleDockInvite}>👥 Invite</button>
-          <button type="button" className={isRecording ? 'dock-btn active' : 'dock-btn'} onClick={handleDockRecordToggle}>🎥 Record</button>
-          <button type="button" className={isMovementEnabled && !isUiLocked ? 'dock-btn active' : 'dock-btn'} onClick={handleDockMoveToggle}>🕹️ Move</button>
-          <button type="button" className="dock-btn" onClick={handleDockHand}>✋ Hand</button>
-          <button type="button" className="dock-btn" onClick={handleDockReact}>🎉 React</button>
-          <button type="button" className={timerSeconds > 0 ? 'dock-btn active' : 'dock-btn'} onClick={handleDockTimerToggle}>{timerSeconds > 0 ? `⏱️ ${formatDuration(timerSeconds)}` : '⏱️ Timer'}</button>
-          <button type="button" className="dock-btn" onClick={handleDockAction}>✨ Action</button>
-        </footer>
-        {dockNotice ? <p className="dock-toast">{dockNotice}</p> : null}
       </section>
     </main>
   );
