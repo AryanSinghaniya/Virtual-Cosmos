@@ -130,7 +130,6 @@ function App() {
   const socketRef = useRef(null);
   const userIdRef = useRef('');
   const playerPosRef = useRef({ x: 200, y: 200 });
-  const moveTargetRef = useRef(null);
   const pressedKeysRef = useRef(new Set());
   const lastMoveEmitRef = useRef(0);
   const lastMoveEmitPosRef = useRef({ x: 200, y: 200 });
@@ -152,8 +151,6 @@ function App() {
   const connectionsRef = useRef([]);
   const worldRef = useRef({ width: 1800, height: 1200 });
   const radiusRef = useRef(180);
-  const isMovementEnabledRef = useRef(true);
-  const isUiLockedRef = useRef(false);
   const timerWasRunningRef = useRef(false);
   const avatarPopupDragRef = useRef({
     pointerId: null,
@@ -206,32 +203,6 @@ function App() {
 
   function showDockNotice(text) {
     setDockNotice(text);
-  }
-
-  function worldPointFromCanvasEvent(event) {
-    const app = appRef.current;
-    if (!app) {
-      return null;
-    }
-
-    const rect = app.canvas.getBoundingClientRect();
-    const localX = event.clientX - rect.left;
-    const localY = event.clientY - rect.top;
-
-    const liveWorld = worldRef.current;
-    const viewWidth = app.renderer.width;
-    const viewHeight = app.renderer.height;
-    const scale = Math.min(
-      (viewWidth - 32) / liveWorld.width,
-      (viewHeight - 32) / liveWorld.height,
-    );
-    const offsetX = (viewWidth - liveWorld.width * scale) / 2;
-    const offsetY = (viewHeight - liveWorld.height * scale) / 2;
-
-    return {
-      x: clamp((localX - offsetX) / scale, 20, liveWorld.width - 20),
-      y: clamp((localY - offsetY) / scale, 20, liveWorld.height - 20),
-    };
   }
 
   function clampAvatarPopupZoom(value) {
@@ -796,26 +767,6 @@ function App() {
 
       appRef.current = app;
       container.appendChild(app.canvas);
-
-      const onCanvasPointerDown = (event) => {
-        if (!isMovementEnabledRef.current || isUiLockedRef.current || !userIdRef.current) {
-          return;
-        }
-
-        const nextTarget = worldPointFromCanvasEvent(event);
-        if (!nextTarget) {
-          return;
-        }
-
-        moveTargetRef.current = nextTarget;
-      };
-
-      app.canvas.addEventListener('pointerdown', onCanvasPointerDown);
-      app.canvas.style.touchAction = 'none';
-
-      appRef.current.__cleanupPointerDown = () => {
-        app.canvas.removeEventListener('pointerdown', onCanvasPointerDown);
-      };
     }
 
     initializePixi();
@@ -823,7 +774,6 @@ function App() {
     return () => {
       isDisposed = true;
       if (appRef.current) {
-        appRef.current.__cleanupPointerDown?.();
         appRef.current.destroy(true);
         appRef.current = null;
       }
@@ -845,14 +795,6 @@ function App() {
   useEffect(() => {
     worldRef.current = world;
   }, [world]);
-
-  useEffect(() => {
-    isMovementEnabledRef.current = isMovementEnabled;
-  }, [isMovementEnabled]);
-
-  useEffect(() => {
-    isUiLockedRef.current = isUiLocked;
-  }, [isUiLocked]);
 
   useEffect(() => {
     radiusRef.current = radius;
@@ -918,7 +860,6 @@ function App() {
   useEffect(() => {
     if (!isMovementEnabled || isUiLocked) {
       pressedKeysRef.current.clear();
-      moveTargetRef.current = null;
     }
   }, [isMovementEnabled, isUiLocked]);
 
@@ -1598,7 +1539,6 @@ function App() {
       const key = event.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         event.preventDefault();
-        moveTargetRef.current = null;
         pressedKeysRef.current.add(key);
       }
     };
@@ -1628,7 +1568,7 @@ function App() {
       const keys = pressedKeysRef.current;
       let dx = 0;
       let dy = 0;
-      let stepDistance = PLAYER_SPEED * dt;
+      const stepDistance = PLAYER_SPEED * dt;
 
       if (keys.has('w') || keys.has('arrowup')) {
         dy -= 1;
@@ -1641,20 +1581,6 @@ function App() {
       }
       if (keys.has('d') || keys.has('arrowright')) {
         dx += 1;
-      }
-
-      if (dx === 0 && dy === 0 && moveTargetRef.current && userIdRef.current) {
-        const toTargetX = moveTargetRef.current.x - playerPosRef.current.x;
-        const toTargetY = moveTargetRef.current.y - playerPosRef.current.y;
-        const distanceToTarget = Math.hypot(toTargetX, toTargetY);
-
-        if (distanceToTarget <= 3) {
-          moveTargetRef.current = null;
-        } else {
-          dx = toTargetX / distanceToTarget;
-          dy = toTargetY / distanceToTarget;
-          stepDistance = Math.min(stepDistance, distanceToTarget);
-        }
       }
 
       if ((dx !== 0 || dy !== 0) && userIdRef.current) {
