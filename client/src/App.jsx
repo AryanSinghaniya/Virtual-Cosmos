@@ -27,7 +27,8 @@ const RTC_CONFIG = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
 const UI_SYNC_INTERVAL_MS = 45;
-const MOVE_EMIT_INTERVAL_MS = 20;
+const MOVE_EMIT_INTERVAL_MS = 28;
+const MOVE_EMIT_MIN_DISTANCE = 1.2;
 const REMOTE_SMOOTH_BLEND = 0.38;
 const PIXI_MAX_RESOLUTION = 1.25;
 const SELF_CORRECTION_DISTANCE = 140;
@@ -132,6 +133,7 @@ function App() {
   const moveTargetRef = useRef(null);
   const pressedKeysRef = useRef(new Set());
   const lastMoveEmitRef = useRef(0);
+  const lastMoveEmitPosRef = useRef({ x: 200, y: 200 });
   const lastUiSyncRef = useRef(0);
   const activeRoomRef = useRef('');
   const activePeerRef = useRef('');
@@ -1296,6 +1298,7 @@ function App() {
     socket.on('world:init', (payload) => {
       userIdRef.current = payload.you.userId;
       playerPosRef.current = { x: payload.you.x, y: payload.you.y };
+      lastMoveEmitPosRef.current = { x: payload.you.x, y: payload.you.y };
       setWorld(payload.world);
       setRadius(payload.radius);
       targetUsersRef.current = payload.users;
@@ -1688,9 +1691,18 @@ function App() {
           lastUiSyncRef.current = now;
         }
 
-        if (socket && now - lastMoveEmitRef.current > MOVE_EMIT_INTERVAL_MS) {
-          socket.emit('user:move', { x: nextX, y: nextY });
+        const movedSinceLastEmit = Math.hypot(
+          nextX - lastMoveEmitPosRef.current.x,
+          nextY - lastMoveEmitPosRef.current.y,
+        );
+        if (
+          socket?.connected &&
+          now - lastMoveEmitRef.current > MOVE_EMIT_INTERVAL_MS &&
+          movedSinceLastEmit >= MOVE_EMIT_MIN_DISTANCE
+        ) {
+          socket.volatile.emit('user:move', { x: nextX, y: nextY });
           lastMoveEmitRef.current = now;
+          lastMoveEmitPosRef.current = { x: nextX, y: nextY };
         }
       }
 
@@ -1917,9 +1929,10 @@ function App() {
     lastUiSyncRef.current = now;
 
     const socket = socketRef.current;
-    if (socket) {
-      socket.emit('user:move', { x: nextX, y: nextY });
+    if (socket?.connected) {
+      socket.volatile.emit('user:move', { x: nextX, y: nextY });
       lastMoveEmitRef.current = now;
+      lastMoveEmitPosRef.current = { x: nextX, y: nextY };
     }
 
     showDockNotice(`Moved to ${selectedNavRoom}.`);
