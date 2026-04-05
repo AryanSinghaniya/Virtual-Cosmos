@@ -89,6 +89,21 @@ Backend environment:
 
 Frontend environment:
 - Copy `client/.env.example` to `client/.env`
+- Set `VITE_SERVER_URL` to your Render backend URL (must be `https://...` in production)
+
+### Deployment Environment Variables (Render + Vercel)
+
+Backend on Render:
+- `CLIENT_ORIGIN=https://your-vercel-app.vercel.app`
+- Optional: if you use preview/staging domains, set comma-separated origins
+- Example: `CLIENT_ORIGIN=https://your-vercel-app.vercel.app,https://your-preview.vercel.app`
+
+Frontend on Vercel:
+- `VITE_SERVER_URL=https://your-render-service.onrender.com`
+
+Important:
+- Do not use `http://` between Vercel and Render, use `https://` only
+- After changing env vars, redeploy both services
 
 If `MONGODB_URI` is not set, backend runs with in-memory state (still fully functional for demo).
 

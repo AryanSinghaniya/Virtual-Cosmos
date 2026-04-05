@@ -1194,7 +1194,14 @@ function App() {
       return undefined;
     }
 
-    const socket = io(SERVER_URL);
+    const socket = io(SERVER_URL, {
+      transports: ['websocket', 'polling'],
+      timeout: 20000,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 2500,
+    });
 
     socketRef.current = socket;
 

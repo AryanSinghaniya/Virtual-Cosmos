@@ -24,16 +24,56 @@ const ROOM_ZONES = [
   { id: 'room-3', name: 'Room 3', x: 980, y: 110, w: 430, h: 260 },
 ];
 
+const allowedOriginSet = new Set(
+  String(CLIENT_ORIGIN || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => item.replace(/\/$/, '')),
+);
+
+function isAllowedOrigin(origin) {
+  if (!origin) {
+    return true;
+  }
+
+  const normalized = origin.replace(/\/$/, '');
+  if (allowedOriginSet.has(normalized)) {
+    return true;
+  }
+
+  return /\.vercel\.app$/i.test(new URL(normalized).hostname);
+}
+
 const app = express();
-app.use(cors({ origin: CLIENT_ORIGIN }));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      try {
+        callback(null, isAllowedOrigin(origin));
+      } catch {
+        callback(null, false);
+      }
+    },
+  }),
+);
 app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_ORIGIN,
+    origin: (origin, callback) => {
+      try {
+        callback(null, isAllowedOrigin(origin));
+      } catch {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ['GET', 'POST'],
   },
+  transports: ['websocket', 'polling'],
+  pingInterval: 25000,
+  pingTimeout: 30000,
 });
 
 const userPresenceSchema = new mongoose.Schema(
