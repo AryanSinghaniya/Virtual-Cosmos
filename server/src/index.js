@@ -372,6 +372,13 @@ app.get('/health', (_, res) => {
   });
 });
 
+app.get('/', (_, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Virtual Cosmos backend is running. Use /health for service status.',
+  });
+});
+
 io.on('connection', (socket) => {
   socket.on('user:register', async (payload = {}, callback) => {
     const name = normalizeName(payload.name);
