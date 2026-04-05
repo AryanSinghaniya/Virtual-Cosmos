@@ -3,7 +3,12 @@ import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { io } from 'socket.io-client';
 import './App.css';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:4000';
+const DEPLOY_FALLBACK_SERVER_URL = 'https://virtual-cosmos-zni1.onrender.com';
+const SERVER_URL =
+  import.meta.env.VITE_SERVER_URL ||
+  (typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')
+    ? DEPLOY_FALLBACK_SERVER_URL
+    : 'http://localhost:4000');
 const PLAYER_SPEED = 240;
 const AVATAR_OPTIONS = ['🧑‍🚀', '👩‍🚀', '🛸', '🤖', '🐱', '🦊', '🐼', '🐸'];
 const STICKER_OPTIONS = ['😀', '😎', '🔥', '✨', '💯', '👋', '🎉', '🚀', '💫', '❤️'];
@@ -1211,6 +1216,12 @@ function App() {
         name: playerName,
         avatarEmoji: playerAvatar,
       });
+    });
+
+    socket.on('connect_error', (error) => {
+      setStatus('disconnected');
+      const message = error?.message || 'Socket connection failed.';
+      setCallError(`Connection error: ${message}`);
     });
 
     socket.on('disconnect', () => {

@@ -104,6 +104,7 @@ Frontend on Vercel:
 Important:
 - Do not use `http://` between Vercel and Render, use `https://` only
 - After changing env vars, redeploy both services
+- Ensure Vercel deployment protection/SSO is disabled for public testing, otherwise guests may be redirected and Socket.IO behavior can appear broken
 
 If `MONGODB_URI` is not set, backend runs with in-memory state (still fully functional for demo).
 
