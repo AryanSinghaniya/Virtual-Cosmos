@@ -13,6 +13,8 @@ const WORLD_HEIGHT = Number(process.env.WORLD_HEIGHT || 1200);
 const PROXIMITY_RADIUS = Number(process.env.PROXIMITY_RADIUS || 180);
 const EFFECTIVE_PROXIMITY_RADIUS = Math.max(PROXIMITY_RADIUS, 240);
 const MONGODB_URI = process.env.MONGODB_URI || '';
+const SERVER_WORLD_BROADCAST_INTERVAL_MS = 33;
+const SERVER_MOVE_MIN_DISTANCE = 0.6;
 const ALLOWED_AVATARS = new Set(['🧑‍🚀', '👩‍🚀', '🛸', '🤖', '🐱', '🦊', '🐼', '🐸']);
 const ALLOWED_STICKERS = new Set(['😀', '😎', '🔥', '✨', '💯', '👋', '🎉', '🚀', '💫', '❤️']);
 const ALLOWED_CHANNELS = new Set(['general-chat', 'doubts-discussion', 'design-room']);
@@ -51,6 +53,7 @@ const userPresenceSchema = new mongoose.Schema(
 
 const UserPresence = mongoose.model('UserPresence', userPresenceSchema);
 const usersBySocketId = new Map();
+let lastWorldBroadcastAt = 0;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -150,7 +153,13 @@ function distanceBetween(userA, userB) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function emitWorldUpdate() {
+function emitWorldUpdate(force = false) {
+  const now = Date.now();
+  if (!force && now - lastWorldBroadcastAt < SERVER_WORLD_BROADCAST_INTERVAL_MS) {
+    return;
+  }
+
+  lastWorldBroadcastAt = now;
   io.emit('world:update', {
     users: listUsers(),
   });
@@ -395,6 +404,7 @@ io.on('connection', (socket) => {
       roomId: '',
       roomName: '',
       proximityPeerIds: new Set(),
+      lastMoveProcessedAt: 0,
     };
 
     usersBySocketId.set(socket.id, user);
@@ -412,7 +422,7 @@ io.on('connection', (socket) => {
     });
 
     emitConnectionsForAllUsers();
-    emitWorldUpdate();
+    emitWorldUpdate(true);
 
     try {
       await persistUser(user, true);
@@ -437,6 +447,19 @@ io.on('connection', (socket) => {
     if (Number.isNaN(x) || Number.isNaN(y)) {
       return;
     }
+
+    const now = Date.now();
+    if (now - user.lastMoveProcessedAt < SERVER_WORLD_BROADCAST_INTERVAL_MS) {
+      return;
+    }
+
+    const dx = x - user.x;
+    const dy = y - user.y;
+    if (Math.hypot(dx, dy) < SERVER_MOVE_MIN_DISTANCE) {
+      return;
+    }
+
+    user.lastMoveProcessedAt = now;
 
     user.x = x;
     user.y = y;
@@ -523,7 +546,7 @@ io.on('connection', (socket) => {
     cleanupProximityForUser(user);
     usersBySocketId.delete(socket.id);
     emitConnectionsForAllUsers();
-    emitWorldUpdate();
+    emitWorldUpdate(true);
 
     try {
       await persistUser(user, false);

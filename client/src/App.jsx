@@ -22,6 +22,7 @@ const RTC_CONFIG = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
 const UI_SYNC_INTERVAL_MS = 45;
+const MOVE_EMIT_INTERVAL_MS = 33;
 const REMOTE_SMOOTH_BLEND = 0.38;
 const PIXI_MAX_RESOLUTION = 1.25;
 const ROOM_CENTERS = {
@@ -1564,7 +1565,7 @@ function App() {
           lastUiSyncRef.current = now;
         }
 
-        if (socket && now - lastMoveEmitRef.current > 20) {
+        if (socket && now - lastMoveEmitRef.current > MOVE_EMIT_INTERVAL_MS) {
           socket.emit('user:move', { x: nextX, y: nextY });
           lastMoveEmitRef.current = now;
         }
