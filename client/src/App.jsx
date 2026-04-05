@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Application, Graphics, Text, TextStyle } from 'pixi.js';
+import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { io } from 'socket.io-client';
 import './App.css';
 
@@ -21,6 +21,9 @@ const AVATAR_CARD_THEMES = [
 const RTC_CONFIG = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
+const UI_SYNC_INTERVAL_MS = 45;
+const REMOTE_SMOOTH_BLEND = 0.38;
+const PIXI_MAX_RESOLUTION = 1.25;
 const ROOM_CENTERS = {
   'Room 1': { x: 295, y: 240 },
   'Room 2': { x: 740, y: 240 },
@@ -742,6 +745,8 @@ function App() {
         resizeTo: container,
         antialias: true,
         background: '#060915',
+        autoDensity: true,
+        resolution: Math.min(window.devicePixelRatio || 1, PIXI_MAX_RESOLUTION),
       });
 
       if (isDisposed) {
@@ -1006,29 +1011,21 @@ function App() {
       { x: 980, y: 110, w: 430, h: 260, color: 0xa18f79, title: 'Room 3' },
     ];
     const tones = [0xec4899, 0xf59e0b, 0x3b82f6, 0x10b981, 0x8b5cf6, 0xef4444];
+    const staticLayer = new Container();
+    const dynamicLayer = new Container();
+    app.stage.removeChildren();
+    app.stage.addChild(staticLayer);
+    app.stage.addChild(dynamicLayer);
 
-    const drawFrame = () => {
-      const liveWorld = worldRef.current;
-      const liveRadius = radiusRef.current;
-      const liveUsers = targetUsersRef.current;
-      const connectedPeerIds = new Set(
-        connectionsRef.current.map((connection) => connection.peerUserId),
-      );
+    let staticSceneKey = '';
 
-      const viewWidth = app.renderer.width;
-      const viewHeight = app.renderer.height;
-      const scale = Math.min(
-        (viewWidth - 32) / liveWorld.width,
-        (viewHeight - 32) / liveWorld.height,
-      );
-      const offsetX = (viewWidth - liveWorld.width * scale) / 2;
-      const offsetY = (viewHeight - liveWorld.height * scale) / 2;
+    const drawStaticScene = (liveWorld, scale, offsetX, offsetY) => {
+      staticLayer.removeChildren();
+
       const toScreen = (x, y) => ({
         x: offsetX + x * scale,
         y: offsetY + y * scale,
       });
-
-      app.stage.removeChildren();
 
       const worldLayer = new Graphics();
       const grassHeight = 82;
@@ -1061,7 +1058,7 @@ function App() {
         fontWeight: '700',
       });
 
-      app.stage.addChild(worldLayer);
+      staticLayer.addChild(worldLayer);
 
       for (const block of roomBlocks) {
         const topLeft = toScreen(block.x, block.y);
@@ -1072,13 +1069,43 @@ function App() {
           .rect(topLeft.x, topLeft.y, sizeX, sizeY)
           .fill(block.color)
           .stroke({ color: 0x433124, width: 1, alpha: 0.5 });
-        app.stage.addChild(tile);
+        staticLayer.addChild(tile);
 
         const roomLabel = new Text({ text: block.title, style: roomLabelStyle });
         roomLabel.anchor.set(0, 0);
         roomLabel.position.set(topLeft.x + 8, topLeft.y + 6);
-        app.stage.addChild(roomLabel);
+        staticLayer.addChild(roomLabel);
       }
+    };
+
+    const drawFrame = () => {
+      const liveWorld = worldRef.current;
+      const liveRadius = radiusRef.current;
+      const liveUsers = targetUsersRef.current;
+      const connectedPeerIds = new Set(
+        connectionsRef.current.map((connection) => connection.peerUserId),
+      );
+
+      const viewWidth = app.renderer.width;
+      const viewHeight = app.renderer.height;
+      const scale = Math.min(
+        (viewWidth - 32) / liveWorld.width,
+        (viewHeight - 32) / liveWorld.height,
+      );
+      const offsetX = (viewWidth - liveWorld.width * scale) / 2;
+      const offsetY = (viewHeight - liveWorld.height * scale) / 2;
+      const toScreen = (x, y) => ({
+        x: offsetX + x * scale,
+        y: offsetY + y * scale,
+      });
+
+      const sceneKey = `${viewWidth}:${viewHeight}:${liveWorld.width}:${liveWorld.height}`;
+      if (sceneKey !== staticSceneKey) {
+        drawStaticScene(liveWorld, scale, offsetX, offsetY);
+        staticSceneKey = sceneKey;
+      }
+
+      dynamicLayer.removeChildren();
 
       const selfUser = liveUsers.find((user) => user.userId === userIdRef.current);
       if (selfUser) {
@@ -1088,7 +1115,7 @@ function App() {
           .circle(selfPos.x, selfPos.y, liveRadius * scale)
           .fill({ color: 0x0ea5e9, alpha: 0.12 })
           .stroke({ color: 0x0284c7, width: 2, alpha: 0.45 });
-        app.stage.addChild(aura);
+        dynamicLayer.addChild(aura);
       }
 
       const liveUserIds = new Set(liveUsers.map((user) => user.userId));
@@ -1116,7 +1143,7 @@ function App() {
           x: user.x,
           y: user.y,
         };
-        const blend = user.userId === userIdRef.current ? 1 : 0.22;
+        const blend = user.userId === userIdRef.current ? 1 : REMOTE_SMOOTH_BLEND;
         const smoothX = previous.x + (user.x - previous.x) * blend;
         const smoothY = previous.y + (user.y - previous.y) * blend;
         smoothedUsersRef.current.set(user.userId, { x: smoothX, y: smoothY });
@@ -1134,7 +1161,7 @@ function App() {
           .circle(position.x + Math.max(11, 14 * scale), position.y + Math.max(11, 14 * scale), Math.max(2.6, 4 * scale))
           .fill(0x34d399)
           .stroke({ width: 1, color: 0x052e16, alpha: 0.85 });
-        app.stage.addChild(avatar);
+        dynamicLayer.addChild(avatar);
 
         const emoji = new Text({
           text: user.avatarEmoji || '🧑‍🚀',
@@ -1142,12 +1169,12 @@ function App() {
         });
         emoji.anchor.set(0.5, 0.5);
         emoji.position.set(position.x, position.y);
-        app.stage.addChild(emoji);
+        dynamicLayer.addChild(emoji);
 
         const label = new Text({ text: user.name, style: labelStyle });
         label.anchor.set(0.5, 1.95);
         label.position.set(position.x, position.y + 2);
-        app.stage.addChild(label);
+        dynamicLayer.addChild(label);
       }
 
       rafId = requestAnimationFrame(drawFrame);
@@ -1203,7 +1230,7 @@ function App() {
 
       const now = performance.now();
       if (
-        now - lastUiSyncRef.current > 120 ||
+        now - lastUiSyncRef.current > UI_SYNC_INTERVAL_MS ||
         payload.users.length !== previousUserCount
       ) {
         setUsers(payload.users);
@@ -1526,7 +1553,7 @@ function App() {
             : user,
         );
 
-        if (now - lastUiSyncRef.current > 120) {
+        if (now - lastUiSyncRef.current > UI_SYNC_INTERVAL_MS) {
           setUsers((prev) =>
             prev.map((user) =>
               user.userId === userIdRef.current
