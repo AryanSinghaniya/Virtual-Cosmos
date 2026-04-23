@@ -83,6 +83,14 @@ function stopTracks(stream) {
   }
 }
 
+function hasUsableVideoTrack(stream) {
+  if (!stream) {
+    return false;
+  }
+
+  return stream.getVideoTracks().some((track) => track.readyState === 'live');
+}
+
 async function requestMediaWithFallbacks() {
   const attempts = [
     {
@@ -146,6 +154,7 @@ function App() {
   const screenStreamRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const renegotiatingRef = useRef(false);
   const targetUsersRef = useRef([]);
   const smoothedUsersRef = useRef(new Map());
   const connectionsRef = useRef([]);
@@ -192,6 +201,7 @@ function App() {
   const [isDraggingAvatarPopup, setIsDraggingAvatarPopup] = useState(false);
   const [isAvatarPopupMinimized, setIsAvatarPopupMinimized] = useState(false);
   const [avatarPopupZoom, setAvatarPopupZoom] = useState(1);
+  const [isPixiReady, setIsPixiReady] = useState(false);
   const [avatarPopupPos, setAvatarPopupPos] = useState(() => ({
     x: typeof window === 'undefined' ? 12 : Math.max(12, window.innerWidth - 560),
     y: 84,
@@ -268,6 +278,16 @@ function App() {
       (message) => (message.channel || DEFAULT_CHANNEL) === selectedChannel,
     );
   }, [activeRoomId, messagesByRoom, selectedChannel]);
+
+  const hasLocalLiveVideo = useMemo(
+    () => Boolean(isCamEnabled && hasUsableVideoTrack(localStream)),
+    [isCamEnabled, localStream],
+  );
+
+  const hasRemoteLiveVideo = useMemo(
+    () => Boolean(hasUsableVideoTrack(remoteStream)),
+    [remoteStream],
+  );
 
   const filteredRooms = useMemo(() => {
     const query = navQuery.trim().toLowerCase();
@@ -466,6 +486,11 @@ function App() {
     const hasVideo = stream.getVideoTracks().length > 0;
     setMediaCapabilities({ audio: hasAudio, video: hasVideo });
 
+    if (!hasVideo) {
+      camEnabledRef.current = false;
+      setIsCamEnabled(false);
+    }
+
     if (!hasAudio || !hasVideo) {
       setCallError(
         hasAudio
@@ -522,6 +547,33 @@ function App() {
         targetUserId: peerUserId,
         candidate: event.candidate,
       });
+    };
+
+    connection.onnegotiationneeded = async () => {
+      if (renegotiatingRef.current || connection.signalingState !== 'stable') {
+        return;
+      }
+
+      renegotiatingRef.current = true;
+      try {
+        const activeCall = currentCallRef.current;
+        if (!activeCall.roomId || !activeCall.peerUserId) {
+          return;
+        }
+
+        const offer = await connection.createOffer();
+        await connection.setLocalDescription(offer);
+
+        socket.emit('rtc:offer', {
+          roomId: activeCall.roomId,
+          targetUserId: activeCall.peerUserId,
+          sdp: offer,
+        });
+      } catch {
+        // Ignore transient renegotiation races.
+      } finally {
+        renegotiatingRef.current = false;
+      }
     };
 
     connection.ontrack = (event) => {
@@ -752,9 +804,7 @@ function App() {
       return;
     }
 
-    const hasLiveVideo = localStreamRef.current
-      .getVideoTracks()
-      .some((track) => track.readyState === 'live');
+    const hasLiveVideo = hasUsableVideoTrack(localStreamRef.current);
 
     if (hasLiveVideo) {
       return;
@@ -762,6 +812,9 @@ function App() {
 
     const attached = await attachCameraTrack();
     if (!attached) {
+      camEnabledRef.current = false;
+      setIsCamEnabled(false);
+      setMediaCapabilities((prev) => ({ ...prev, video: false }));
       setCallError('Camera unavailable for this call.');
     }
   }
@@ -791,6 +844,7 @@ function App() {
 
       appRef.current = app;
       container.appendChild(app.canvas);
+      setIsPixiReady(true);
     }
 
     initializePixi();
@@ -801,6 +855,7 @@ function App() {
         appRef.current.destroy(true);
         appRef.current = null;
       }
+      setIsPixiReady(false);
     };
   }, []);
 
@@ -978,26 +1033,75 @@ function App() {
   }, [isCamEnabled]);
 
   useEffect(() => {
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = localStream;
-      if (localStream) {
-        localVideoRef.current.play().catch(() => {
-          // Autoplay can fail in some browser states.
-        });
-      }
+    if (!localStreamRef.current || callState !== 'connected' || !isCamEnabled) {
+      return undefined;
     }
-  }, [localStream]);
+
+    const tracks = localStreamRef.current.getVideoTracks();
+    if (tracks.length === 0) {
+      return undefined;
+    }
+
+    const recoverIfNeeded = () => {
+      ensureVideoTrackIfEnabled().catch(() => {
+        // If recovery fails, error state is handled in ensureVideoTrackIfEnabled.
+      });
+    };
+
+    for (const track of tracks) {
+      track.onended = recoverIfNeeded;
+    }
+
+    return () => {
+      for (const track of tracks) {
+        if (track.onended === recoverIfNeeded) {
+          track.onended = null;
+        }
+      }
+    };
+  }, [callState, isCamEnabled, localStream]);
 
   useEffect(() => {
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
-      if (remoteStream) {
-        remoteVideoRef.current.play().catch(() => {
-          // Autoplay can fail in some browser states.
-        });
-      }
+    if (callState !== 'connected' || !isCamEnabled) {
+      return undefined;
     }
-  }, [remoteStream]);
+
+    const intervalId = window.setInterval(() => {
+      ensureVideoTrackIfEnabled().catch(() => {
+        // Keep trying while connected.
+      });
+    }, 1600);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [callState, isCamEnabled]);
+
+  useEffect(() => {
+    if (!localVideoRef.current) {
+      return;
+    }
+
+    localVideoRef.current.srcObject = localStream || null;
+    if (localStream && hasLocalLiveVideo) {
+      localVideoRef.current.play().catch(() => {
+        // Autoplay can fail in some browser states.
+      });
+    }
+  }, [callState, hasLocalLiveVideo, localStream]);
+
+  useEffect(() => {
+    if (!remoteVideoRef.current) {
+      return;
+    }
+
+    remoteVideoRef.current.srcObject = remoteStream || null;
+    if (remoteStream && hasRemoteLiveVideo) {
+      remoteVideoRef.current.play().catch(() => {
+        // Autoplay can fail in some browser states.
+      });
+    }
+  }, [callState, hasRemoteLiveVideo, remoteStream]);
 
   useEffect(() => {
     const selectedConnection =
@@ -1220,7 +1324,7 @@ function App() {
     return () => {
       cancelAnimationFrame(rafId);
     };
-  }, [world, radius]);
+  }, [world, radius, isPixiReady]);
 
   useEffect(() => {
     if (!hasEnteredName || !playerName) {
@@ -2007,83 +2111,6 @@ function App() {
           </div>
         </header>
 
-        {connectedAvatarUsers.length > 0 ? (
-          <aside
-            ref={avatarPopupRef}
-            className={[
-              'avatar-popup',
-              isDraggingAvatarPopup ? 'dragging' : '',
-              isAvatarPopupMinimized ? 'minimized' : '',
-            ].filter(Boolean).join(' ')}
-            style={{
-              '--avatar-popup-x': `${avatarPopupPos.x}px`,
-              '--avatar-popup-y': `${avatarPopupPos.y}px`,
-              '--avatar-popup-zoom': avatarPopupZoom,
-            }}
-          >
-            <div className="avatar-popup-head">
-              <div className="avatar-popup-handle" onPointerDown={handleAvatarPopupPointerDown}>
-                <h3>Connected Users</h3>
-                <span>Drag</span>
-              </div>
-
-              <div className="avatar-popup-zoom-controls">
-                <button
-                  type="button"
-                  onClick={handleAvatarPopupMinimizeToggle}
-                  title={isAvatarPopupMinimized ? 'Expand' : 'Minimize'}
-                >
-                  {isAvatarPopupMinimized ? '▢' : '—'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAvatarPopupZoomOut}
-                  title="Zoom out"
-                  disabled={avatarPopupZoom <= 0.75}
-                >
-                  -
-                </button>
-                <span>{Math.round(avatarPopupZoom * 100)}%</span>
-                <button
-                  type="button"
-                  onClick={handleAvatarPopupZoomIn}
-                  title="Zoom in"
-                  disabled={avatarPopupZoom >= 1.35}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            <section className="avatar-popup-strip">
-              {connectedAvatarUsers.map((user) => {
-                const theme = avatarCardTheme(user.userId || user.name);
-                return (
-                  <article
-                    key={user.userId}
-                    className={user.userId === userIdRef.current ? 'hero-avatar me' : 'hero-avatar'}
-                    style={{
-                      '--avatar-card-bg': theme.background,
-                      '--avatar-card-border': theme.border,
-                    }}
-                  >
-                    <div className="hero-avatar-media">
-                      <img src={avatarImageUrl(user.userId || user.name)} alt={`${user.name} avatar`} />
-                    </div>
-
-                    <div className="hero-avatar-name">{user.name}</div>
-                    <div className="hero-card-icons">
-                      <span>🎤</span>
-                      <span>📷</span>
-                    </div>
-                    <i className="hero-status-dot" />
-                  </article>
-                );
-              })}
-            </section>
-          </aside>
-        ) : null}
-
         <section className="main-grid">
           <div className="map-stage">
             <div ref={canvasContainerRef} className="cosmos-canvas" />
@@ -2153,11 +2180,24 @@ function App() {
                   {(callState === 'requesting-media' || callState === 'connecting' || callState === 'connected') ? (
                     <div className="video-grid">
                       <article className="video-tile">
-                        <video ref={remoteVideoRef} autoPlay playsInline />
+                        <video
+                          ref={remoteVideoRef}
+                          autoPlay
+                          playsInline
+                          className={hasRemoteLiveVideo ? '' : 'video-hidden'}
+                        />
+                        {!hasRemoteLiveVideo ? <div className="video-fallback">Remote camera unavailable</div> : null}
                         <span>{activeConnection?.peerAvatarEmoji || '🧑‍🚀'} Remote</span>
                       </article>
                       <article className="video-tile self-video">
-                        <video ref={localVideoRef} autoPlay muted playsInline />
+                        <video
+                          ref={localVideoRef}
+                          autoPlay
+                          muted
+                          playsInline
+                          className={hasLocalLiveVideo ? '' : 'video-hidden'}
+                        />
+                        {!hasLocalLiveVideo ? <div className="video-fallback">Your camera unavailable in this tab</div> : null}
                         <span>{playerAvatar} You</span>
                       </article>
                     </div>

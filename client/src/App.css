@@ -652,6 +652,7 @@
   min-height: 90px;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .video-tile video {
@@ -659,6 +660,25 @@
   aspect-ratio: 16 / 10;
   object-fit: cover;
   background: #020617;
+}
+
+.video-hidden {
+  visibility: hidden;
+}
+
+.video-fallback {
+  position: absolute;
+  inset: 0 0 auto;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f172a;
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  text-align: center;
+  padding: 0.4rem;
 }
 
 .video-tile span {
