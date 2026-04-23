@@ -1,5 +1,9 @@
 # Virtual Cosmos Assignment
 
+## Demo Video link
+
+https://www.loom.com/share/d0836e7654404daa821c420112740b49
+
 A real-time 2D virtual environment where users move inside a shared space and can chat only when they are physically close.
 
 ## Submit The Following
@@ -156,13 +160,4 @@ Show these in order:
 5. Exchange messages
 6. Move apart and show chat panel auto-disconnect behavior
 
-## Submission Checklist
 
-1. Push this full codebase to GitHub
-2. Include this README
-3. Record demo video and include assignment requirements
-4. Submit repository + video link in the provided form
-
-## Demo Video link
-
-https://www.loom.com/share/d0836e7654404daa821c420112740b49
