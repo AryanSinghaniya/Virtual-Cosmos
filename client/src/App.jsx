@@ -96,18 +96,18 @@ async function requestMediaWithFallbacks() {
       },
     },
     {
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-      },
-      video: false,
-    },
-    {
       audio: false,
       video: {
         width: { ideal: 640 },
         height: { ideal: 360 },
       },
+    },
+    {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+      video: false,
     },
   ];
 
@@ -536,6 +536,9 @@ function App() {
         callStateRef.current = 'connected';
         setCallState('connected');
         setCallError('');
+        ensureVideoTrackIfEnabled().catch(() => {
+          setCallError('Camera unavailable for this call.');
+        });
       }
 
       if (
@@ -602,6 +605,7 @@ function App() {
 
     try {
       await ensureLocalStream();
+      await ensureVideoTrackIfEnabled();
     } catch {
       callStateRef.current = 'error';
       setCallState('error');
@@ -627,6 +631,7 @@ function App() {
 
     try {
       await ensureLocalStream();
+      await ensureVideoTrackIfEnabled();
     } catch {
       callStateRef.current = 'error';
       setCallState('error');
@@ -740,6 +745,25 @@ function App() {
     }
 
     setIsCamEnabled(willEnable);
+  }
+
+  async function ensureVideoTrackIfEnabled() {
+    if (!camEnabledRef.current || !localStreamRef.current) {
+      return;
+    }
+
+    const hasLiveVideo = localStreamRef.current
+      .getVideoTracks()
+      .some((track) => track.readyState === 'live');
+
+    if (hasLiveVideo) {
+      return;
+    }
+
+    const attached = await attachCameraTrack();
+    if (!attached) {
+      setCallError('Camera unavailable for this call.');
+    }
   }
 
   useEffect(() => {
