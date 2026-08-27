@@ -110,10 +110,10 @@ export const App: React.FC = () => {
   const [connections, setConnections] = useState<ActiveConnection[]>([]);
   const [activeConnectionRoomId, setActiveConnectionRoomId] = useState('');
   const [roomZones, setRoomZones] = useState<RoomZone[]>([
-    { id: 'room-main', name: '🏛️ Main Stage & Keynote', x: 60, y: 60, w: 760, h: 540 },
+    { id: 'room-main', name: '🏛️ Main Stage & Keynote', x: 60, y: 60, w: 760, h: 560 },
     { id: 'room-1', name: '🎨 Design & AI Hub', x: 880, y: 60, w: 420, h: 260 },
     { id: 'room-2', name: '💻 Dev & Engineering', x: 1340, y: 60, w: 400, h: 260 },
-    { id: 'room-3', name: '☕ Networking Lounge', x: 880, y: 350, w: 860, h: 250 },
+    { id: 'room-3', name: '☕ Networking Lounge', x: 880, y: 340, w: 860, h: 280 },
     { id: 'room-plaza', name: '🌟 Community Plaza & Roundtable', x: 60, y: 640, w: 1680, h: 500 },
   ]);
   const [proximityRadius, setProximityRadius] = useState(240);
@@ -236,6 +236,14 @@ export const App: React.FC = () => {
 
     socket.on('connections:update', (data: any) => {
       const conns: ActiveConnection[] = data.activeConnections || [];
+
+      // Sort connections so active Room Zone (Main Stage, Lounge) comes first, followed by nearest peers
+      conns.sort((a, b) => {
+        if (a.linkType === 'room' && b.linkType !== 'room') return -1;
+        if (b.linkType === 'room' && a.linkType !== 'room') return 1;
+        return 0;
+      });
+
       setConnections(conns);
       if (conns.length > 0) {
         setActiveConnectionRoomId((prev) => {

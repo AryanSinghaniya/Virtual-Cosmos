@@ -26,10 +26,10 @@ ALLOWED_STICKERS = {"😀", "😎", "🔥", "✨", "💯", "👋", "🎉", "🚀
 ALLOWED_CHANNELS = {"general-chat", "doubts-discussion", "design-room"}
 
 ROOM_ZONES = [
-    {"id": "room-main", "name": "🏛️ Main Stage & Keynote", "x": 60, "y": 60, "w": 760, "h": 540},
+    {"id": "room-main", "name": "🏛️ Main Stage & Keynote", "x": 60, "y": 60, "w": 760, "h": 560},
     {"id": "room-1", "name": "🎨 Design & AI Hub", "x": 880, "y": 60, "w": 420, "h": 260},
     {"id": "room-2", "name": "💻 Dev & Engineering", "x": 1340, "y": 60, "w": 400, "h": 260},
-    {"id": "room-3", "name": "☕ Networking Lounge", "x": 880, "y": 350, "w": 860, "h": 250},
+    {"id": "room-3", "name": "☕ Networking Lounge", "x": 880, "y": 340, "w": 860, "h": 280},
     {"id": "room-plaza", "name": "🌟 Community Plaza & Roundtable", "x": 60, "y": 640, "w": 1680, "h": 500},
 ]
 
