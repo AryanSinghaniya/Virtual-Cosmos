@@ -1,12 +1,14 @@
 {
-  "name": "virtual-cosmos-assignment",
+  "name": "virtual-cosmos-enterprise",
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "install:all": "npm install; cd client; npm install; cd ..\\server; npm install",
-    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
-    "build": "npm run build --prefix client",
-    "start": "npm run start --prefix server"
+    "dev:backend": "python -m uvicorn app.main:app --reload --port 8000 --app-dir backend --ws websockets",
+    "dev:frontend": "npm run dev --prefix client",
+    "dev": "concurrently \"python -m uvicorn app.main:app --reload --port 8000 --app-dir backend --ws websockets\" \"npm run dev --prefix client\"",
+    "test:backend": "pytest backend",
+    "typecheck:frontend": "npm run typecheck --prefix client",
+    "build": "npm run build --prefix client"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

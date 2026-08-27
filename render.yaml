@@ -1,0 +1,36 @@
+services:
+  # 1. FastAPI + WebSockets Backend Service
+  - type: web
+    name: virtual-cosmos-api
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT --ws websockets"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: virtual-cosmos-db
+          property: connectionString
+      - key: ENABLE_POSTGIS
+        value: "True"
+      - key: ENABLE_PGVECTOR
+        value: "True"
+      - key: BACKEND_CORS_ORIGINS
+        value: '["*"]'
+
+databases:
+  # 2. Managed PostgreSQL Database with pgvector
+  - name: virtual-cosmos-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: 16

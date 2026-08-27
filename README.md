@@ -1,148 +1,175 @@
-# Virtual Cosmos Assignment
+# 🌌 Virtual Cosmos: Real-Time 2D Spatial & AI Proximity Platform
 
-## Demo Video link
+## 🎬 Demo Video Link
+**[Watch the Loom Demo Video](https://www.loom.com/share/d0836e7654404daa821c420112740b49)**
 
-https://www.loom.com/share/d0836e7654404daa821c420112740b49
+[![CI Pipeline](https://github.com/AryanSinghaniya/Virtual-Cosmos/actions/workflows/ci.yml/badge.svg)](https://github.com/AryanSinghaniya/Virtual-Cosmos/actions/workflows/ci.yml)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20%28Python%203.12%29-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016%20%2B%20PostGIS%20%2B%20pgvector-336791.svg?logo=postgresql)](https://www.postgresql.org)
+[![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20TypeScript%20%2B%20Zustand-61DAFB.svg?logo=react)](https://react.dev)
+[![Docker](https://img.shields.io/badge/Containerization-Docker%20%26%20Compose-2496ED.svg?logo=docker)](https://www.docker.com)
+[![AWS](https://img.shields.io/badge/Cloud-AWS%20ECS%20%7C%20RDS%20%7C%20CloudFront-FF9900.svg?logo=amazon-aws)](https://aws.amazon.com)
 
-A real-time 2D virtual environment where users move inside a shared space and can chat only when they are physically close.
+**Virtual Cosmos** is a high-performance, real-time 2D virtual environment and spatial collaboration engine. Users navigate a continuous coordinate world where proximity automatically establishes audio/video peer sessions, encrypted ephemeral chat channels, and AI-powered profile matchmaking using vector embeddings.
 
-## Submit The Following
+---
 
-1. GitHub Repository
-- Proper README
-- Setup instructions
-- Clean code
+## 🏗️ Architecture & Technology Stack
 
-## Implemented Features
+```
+                               ┌────────────────────────────────────────────────────────┐
+                               │               React 18+ Client (TypeScript)           │
+                               │   - Zustand State Management (Atomic Stores)           │
+                               │   - HTML5 Canvas 60fps Spatial Interpolation           │
+                               │   - WebRTC Peer-to-Peer Audio/Video & Screen Sharing   │
+                               └───────────────────────┬────────────────────────────────┘
+                                                       │ (REST API & Real-time WebSockets)
+                                                       ▼
+                               ┌────────────────────────────────────────────────────────┐
+                               │             FastAPI Backend (Python 3.12)              │
+                               │   - Async ASGI Engine (Uvicorn) & Dependency Injection │
+                               │   - Sub-millisecond Spatial Proximity Engine           │
+                               │   - SlowAPI Token-Bucket Rate Limiting                 │
+                               │   - JWT Bearer Authentication & Refresh Token Rotation │
+                               └───────────────────────┬────────────────────────────────┘
+                                                       │
+                                ┌──────────────────────┴──────────────────────┐
+                                ▼                                             ▼
+       ┌──────────────────────────────────────────────┐     ┌──────────────────────────────────┐
+       │     PostgreSQL 16 Relational Storage         │     │         Redis 7 (In-Memory)      │
+       │  - PostGIS Geometry (GIST Spatial Index)     │     │  - Token-bucket Rate Limiter     │
+       │  - pgvector Embeddings (HNSW Indexing)       │     │  - Distributed WebSocket Pub/Sub │
+       │  - Alembic Asynchronous Database Migrations  │     └──────────────────────────────────┘
+       └──────────────────────────────────────────────┘
+```
 
-### 1. User Movement
-- 2D world rendered with PixiJS
-- Each user displayed with an emoji avatar + name label
-- Keyboard movement with WASD and Arrow keys
-- Movement clamped to world boundaries
+### Core Tech Stack
 
-### 2. Real-Time Multiplayer
-- Every connected user is visible to all others
-- Positions are synced via Socket.IO events
-- Live world updates broadcast by backend
+| Layer | Technologies & Frameworks | Key Capabilities |
+| :--- | :--- | :--- |
+| **Backend** | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 Async, Asyncpg, SlowAPI | Asynchronous REST endpoints, OpenAPI docs, sub-millisecond proximity loop |
+| **Database** | PostgreSQL 16, PostGIS, pgvector, Alembic | Spatial `ST_DWithin` indexing, HNSW vector cosine similarity search |
+| **Frontend** | React 18/19, TypeScript, Zustand, TailwindCSS, HTML5 Canvas 2D | Centralized reactive stores, 60fps smooth movement interpolation |
+| **Real-Time** | WebSockets, WebRTC (Mesh Audio/Video/Screen) | Bidirectional coordinate sync, P2P video calling, proximity audio |
+| **DevOps & Cloud**| Docker (Multi-stage), Docker Compose, AWS (ECS Fargate, RDS, S3/CloudFront), GitHub Actions CI/CD | Zero-downtime deployments, non-root containers, automated CI verification |
 
-### 3. Proximity Detection (Core Logic)
-- Configurable proximity radius on server
-- Distance formula checks every move update
-- If distance < radius, users connect
-- If distance >= radius, users disconnect
+---
 
-### 4. Proximity Chat System
-- Auto room join when users are close
-- Auto room leave when users move apart
-- Chat panel enables only when at least one active nearby connection exists
-- Multiple nearby users supported via per-pair rooms
-- Built-in sticker picker for fast emoji-based interaction
-- WebRTC call controls with Start/Accept/Reject and ringing state
-- Mic and camera toggle controls available during connected call
-- Screen sharing toggle during active call
+## ✨ Key Features
 
-### 5. UI/UX
-- Minimal but polished dashboard UI
-- Live status badge (connected/disconnected)
-- Pixi canvas with world boundary + proximity aura
-- Active connection list with peer avatar emojis and contextual chat panel
-- Avatar card strip for online users (closer feel to virtual office tools)
-- Responsive layout for desktop and mobile
+1. **Spatial Proximity Engine (PostGIS & 2D Coordinate Grid)**:
+   - Dynamic real-time calculation: `distance = sqrt((x1 - x2)^2 + (y1 - y2)^2)`.
+   - Proximity auras and deterministic room keys (`proximity:{min_id}:{max_id}`) created when distance is within threshold (`160px`).
+2. **AI Semantic Profile Matchmaker (pgvector & HNSW)**:
+   - User bios, skills, and interests are embedded into normalized dense vector space (`Vector(384)`).
+   - Instant cosine distance query calculates affinity scores and matches peers with shared technical passions.
+3. **Peer-to-Peer WebRTC Audio/Video/Screen Calling**:
+   - Integrated signaling gateway (`webrtc:offer`, `webrtc:answer`, `webrtc:candidate`, `webrtc:call-user`, `webrtc:hangup`).
+   - In-app incoming call notifications, mic mute, camera toggle, and desktop screen sharing.
+4. **Production-Grade REST API with Security & Rate Limiting**:
+   - JWT Access & Refresh token rotation with bcrypt password hashing.
+   - SlowAPI rate limiting to safeguard auth (20 req/min) and chat endpoints against abuse.
+   - Cursor and offset pagination on space rosters and chat histories.
+5. **Radar Minimap & Interactive HUD**:
+   - Real-time radar displaying world borders and live peer blips.
+   - Proximity peer roster strip and interactive sticker tray (`🚀`, `🛰️`, `💻`, `🤖`, `🔥`).
 
-## Tech Stack Used
+---
 
-### Frontend
-- React + Vite
-- PixiJS (canvas rendering)
-- Tailwind dependency enabled (custom CSS-driven final design)
-- Socket.IO Client
-
-### Backend
-- Node.js + Express
-- Socket.IO
-- MongoDB support with Mongoose (optional via environment variable)
-- In-memory fallback when MongoDB is not configured
-
-## Project Structure
-
-- `client/` React app (UI + Pixi + movement + chat)
-- `server/` Express + Socket.IO backend (state + proximity + messaging)
-- `assignment.txt` original assignment prompt
-
-## Environment Setup
+## 🚀 Quickstart & Local Development
 
 ### Prerequisites
-- Node.js 18+
-- npm
-- Optional: MongoDB running locally or remotely
+- Python 3.12+
+- Node.js 20+ & npm
+- Docker & Docker Compose (optional for full-stack containerization)
 
-### 1) Install dependencies
-Run from root:
-
+### Option 1: Run with Docker Compose (FastAPI + PostgreSQL + pgvector + Redis + React)
 ```bash
-npm install
-npm run install:all
+# Clone the repository
+git clone https://github.com/AryanSinghaniya/Virtual-Cosmos.git
+cd Virtual-Cosmos
+
+# Spin up all containerized services
+docker-compose up --build
+```
+* **Frontend**: http://localhost:3000
+* **Backend API**: http://localhost:8000
+* **Swagger API Documentation**: http://localhost:8000/docs
+
+---
+
+### Option 2: Run Locally (Standalone)
+
+#### 1. Start the FastAPI Backend
+```bash
+cd backend
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run automated tests
+pytest -v
+
+# Start development server
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-### 2) Configure environment
-
-Backend environment:
-- Copy `server/.env.example` to `server/.env`
-- Update values if needed
-
-Frontend environment:
-- Copy `client/.env.example` to `client/.env`
-- Set `VITE_SERVER_URL` to your Render backend URL (must be `https://...` in production)
-
-### Deployment Environment Variables (Render + Vercel)
-
-Backend on Render:
-- `CLIENT_ORIGIN=https://your-vercel-app.vercel.app`
-- Optional: if you use preview/staging domains, set comma-separated origins
-- Example: `CLIENT_ORIGIN=https://your-vercel-app.vercel.app,https://your-preview.vercel.app`
-
-Frontend on Vercel:
-- `VITE_SERVER_URL=https://your-render-service.onrender.com`
-
-Important:
-- Do not use `http://` between Vercel and Render, use `https://` only
-- After changing env vars, redeploy both services
-- Ensure Vercel deployment protection/SSO is disabled for public testing, otherwise guests may be redirected and Socket.IO behavior can appear broken
-
-If `MONGODB_URI` is not set, backend runs with in-memory state (still fully functional for demo).
-
-### 3) Run in development mode
-From root:
-
+#### 2. Start the React TypeScript Frontend
 ```bash
+cd client
+
+# Install dependencies
+npm install
+
+# Run TypeScript type check
+npm run typecheck
+
+# Start Vite development server
 npm run dev
 ```
+* Frontend runs at `http://localhost:5173`.
 
-- Frontend: http://localhost:5173
-- Backend: http://localhost:4000
+---
 
-### 4) Build frontend
+## 📡 API Endpoint Overview
+
+| Method | Endpoint | Description | Rate Limit |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/auth/register` | Register new user & provision profile | 20 / min |
+| `POST` | `/api/v1/auth/login` | Authenticate & issue JWT access + refresh tokens | 20 / min |
+| `POST` | `/api/v1/auth/refresh` | Refresh expired access token | 60 / min |
+| `GET` | `/api/v1/auth/me` | Fetch authenticated user profile & skills | 120 / min |
+| `GET` | `/api/v1/spaces` | Paginated list of virtual cosmos worlds | 120 / min |
+| `POST` | `/api/v1/spatial/proximity-scan` | PostGIS spatial proximity detection scan | 120 / min |
+| `POST` | `/api/v1/ai/match` | pgvector cosine similarity profile matchmaking | 30 / min |
+| `GET` | `/api/v1/chat/history` | Paginated chat messages by room key | 120 / min |
+| `POST` | `/api/v1/chat` | Persist and send direct/proximity chat message | 60 / min |
+| `WS` | `/api/v1/ws/cosmos/{space_id}` | Asynchronous multiplayer WebSocket engine | Real-time |
+
+---
+
+## 🧪 Testing & Quality Assurance
 
 ```bash
-npm run build
+# Run backend pytest suite
+cd backend && pytest -v
+
+# Run frontend TypeScript typecheck
+cd client && npm run typecheck
+
+# Run production frontend bundle
+cd client && npm run build
 ```
 
-## Socket Event Design
+---
 
-### Client -> Server
-- `user:register` : register user with name/starting position
-- `user:move` : live position update
-- `chat:send` : send chat message to active room
+## ☁️ AWS Production Deployment
 
-### Server -> Client
-- `world:init` : initial world state + own identity + radius
-- `world:update` : live user position updates
-- `connections:update` : active nearby chat connections
-- `chat:message` : room chat messages
+See our dedicated [AWS Architecture Guide](file:///d:/imprtanat%20data/projects/virtual%20cosmos/deploy/aws/architecture.md) for full configuration details on deploying to **AWS ECS Fargate**, **Amazon RDS Aurora PostgreSQL**, **Amazon ElastiCache Redis**, and **CloudFront + S3**.
 
-## Core Proximity Formula
+---
 
+<<<<<<< HEAD
 Given users A and B:
 
 `distance = sqrt((Ax - Bx)^2 + (Ay - By)^2)`
@@ -161,3 +188,7 @@ Show these in order:
 6. Move apart and show chat panel auto-disconnect behavior
 
 
+=======
+## 📄 License
+This project is licensed under the MIT License.
+>>>>>>> e426f0f (Convert Virtual Cosmos to FastAPI, PostgreSQL, PostGIS, pgvector, WebRTC multi-user calling, and Docker)

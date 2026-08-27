@@ -1,0 +1,113 @@
+name: Continuous Integration (CI)
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # 1. Backend Verification (FastAPI + Pytest + Linting)
+  backend-test:
+    name: Backend Test & Lint
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: virtual_cosmos_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install flake8 pytest pytest-asyncio httpx email-validator
+
+      - name: Run Linting (Flake8)
+        run: |
+          flake8 backend/app --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run Backend Pytest Suite
+        run: |
+          cd backend
+          pytest -v
+
+  # 2. Frontend Verification (React 18 + TypeScript Typecheck + Vite Build)
+  frontend-test:
+    name: Frontend Typecheck & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd client
+          npm ci
+
+      - name: TypeScript Typecheck
+        run: |
+          cd client
+          npm run typecheck
+
+      - name: Production Vite Build
+        run: |
+          cd client
+          npm run build
+
+  # 3. Docker Image Build Validation
+  docker-build:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./deploy/docker/Dockerfile.backend
+          push: false
+          tags: virtual-cosmos-backend:ci
+
+      - name: Build Frontend Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./client
+          file: ./deploy/docker/Dockerfile.frontend
+          push: false
+          tags: virtual-cosmos-frontend:ci

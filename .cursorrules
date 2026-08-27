@@ -1,0 +1,19 @@
+# Cursor & AI Coding Assistant Rules for Virtual Cosmos
+
+## Tech Stack Guidelines
+- **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), Asyncpg, Pydantic v2, PostgreSQL (PostGIS & pgvector), SlowAPI rate limiting.
+- **Frontend**: React 18/19, TypeScript, Zustand for centralized state, TailwindCSS, HTML5 Canvas 2D spatial rendering.
+- **DevOps & Cloud**: Docker multi-stage builds, Docker Compose, AWS ECS Fargate, Amazon RDS Aurora PostgreSQL, GitHub Actions CI/CD.
+
+## Code Standards
+1. **Python / FastAPI**:
+   - Always use Pydantic v2 `BaseModel` with `model_config = ConfigDict(from_attributes=True)`.
+   - Use async `AsyncSession` from `sqlalchemy.ext.asyncio` with explicit transaction handling.
+   - Enforce dependency injection via `Depends(get_db)` and `Depends(get_current_user)`.
+   - Protect public/auth endpoints with `slowapi` rate limiting.
+2. **TypeScript / React**:
+   - Strictly type all WebSocket incoming/outgoing payloads and REST API responses.
+   - Keep state centralized in dedicated Zustand stores (`useAuthStore`, `useCosmosStore`, `useChatStore`, `useWebRTCStore`, `useMatchmakerStore`).
+   - Extract game-loop / animation logic into custom React hooks (`useMovement`, `useWebSocket`).
+3. **Database & Indexing**:
+   - Never run raw unindexed spatial queries. Leverage PostGIS `ST_DWithin` with GIST indexes and pgvector `<=>` cosine distance with HNSW indexes.
