@@ -354,6 +354,23 @@ async def handle_user_move(sid, payload=None):
     await emit_world_update()
 
 
+@sio.on("user:update-profile")
+async def handle_user_update_profile(sid, payload=None):
+    user = users_by_sid.get(sid)
+    if not user or not payload:
+        return {"ok": False}
+
+    if payload.get("name"):
+        user["name"] = normalize_name(payload.get("name"))
+    if payload.get("avatarEmoji"):
+        user["avatarEmoji"] = normalize_avatar(payload.get("avatarEmoji"))
+
+    await emit_connections_for_all_users()
+    await emit_world_update(force=True)
+    return {"ok": True, "name": user["name"], "avatarEmoji": user["avatarEmoji"]}
+
+
+
 @sio.on("chat:send")
 async def handle_chat_send(sid, payload=None):
     user = users_by_sid.get(sid)

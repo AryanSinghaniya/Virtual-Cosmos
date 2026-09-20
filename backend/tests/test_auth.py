@@ -17,13 +17,18 @@ async def test_root_and_health():
 
 @pytest.mark.asyncio
 async def test_auth_registration_and_login():
+    import uuid
+    rand_suffix = uuid.uuid4().hex[:6]
+    test_email = f"test_engineer_{rand_suffix}@cosmos.io"
+    test_username = f"test_engineer_{rand_suffix}"
+
     async with AsyncClient(transport=ASGITransport(app=fastapi_app), base_url="http://test") as ac:
         # Register new user
         reg_payload = {
-            "email": "test_engineer_2@cosmos.io",
-            "username": "test_engineer_2",
+            "email": test_email,
+            "username": test_username,
             "password": "SecurePassword123!",
-            "display_name": "Test Engineer 2",
+            "display_name": f"Test Engineer {rand_suffix}",
             "avatar_emoji": "🚀",
             "bio": "Building FastAPI and React spatial apps",
             "interests": ["Python", "FastAPI", "React", "PostGIS"],
@@ -33,18 +38,18 @@ async def test_auth_registration_and_login():
         assert reg_res.status_code == 201
         data = reg_res.json()["data"]
         assert "tokens" in data
-        assert data["user"]["email"] == "test_engineer_2@cosmos.io"
+        assert data["user"]["email"] == test_email
         access_token = data["tokens"]["access_token"]
 
         # Access /me with token
         headers = {"Authorization": f"Bearer {access_token}"}
         me_res = await ac.get("/api/v1/auth/me", headers=headers)
         assert me_res.status_code == 200
-        assert me_res.json()["data"]["username"] == "test_engineer_2"
+        assert me_res.json()["data"]["username"] == test_username
 
         # Login
         login_res = await ac.post("/api/v1/auth/login", json={
-            "email": "test_engineer_2@cosmos.io",
+            "email": test_email,
             "password": "SecurePassword123!"
         })
         assert login_res.status_code == 200

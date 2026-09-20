@@ -14,37 +14,50 @@
   position: fixed;
   inset: 0;
   z-index: 999;
-  background: rgba(4, 7, 17, 0.75);
-  backdrop-filter: blur(8px);
+  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.96));
+  backdrop-filter: blur(12px);
   display: grid;
   place-items: center;
   padding: 1rem;
+  overflow-y: auto;
 }
 
 .join-card {
-  width: min(440px, 100%);
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  padding: 1.5rem;
+  width: min(520px, 100%);
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(59, 130, 246, 0.15);
+  padding: 1.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
+  animation: fadeInModal 0.25s ease-out;
+}
+
+@keyframes fadeInModal {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .join-card h2 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.45rem;
   font-weight: 800;
-  color: #0f172a !important;
+  color: #ffffff !important;
   letter-spacing: -0.02em;
 }
 
 .join-card p {
   margin: 0;
-  color: #475569 !important;
+  color: #94a3b8 !important;
   font-size: 0.88rem;
   line-height: 1.4;
 }
@@ -52,51 +65,54 @@
 .join-card input {
   width: 100%;
   box-sizing: border-box;
-  margin-top: 0.25rem;
-  border-radius: 10px;
-  border: 1.5px solid #cbd5e1;
-  background: #ffffff;
-  color: #0f172a !important;
-  padding: 0.65rem 0.85rem;
-  font-size: 0.95rem;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  background: #020617;
+  color: #f8fafc !important;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
   font-weight: 500;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .join-card input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 
 .join-card input::placeholder {
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .join-card button[type="submit"] {
   border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb, #6366f1);
   color: #ffffff;
   font-weight: 700;
   font-size: 0.95rem;
   cursor: pointer;
-  padding: 0.75rem 1rem;
-  margin-top: 0.35rem;
+  padding: 0.8rem 1.2rem;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.35);
 }
 
 .join-card button[type="submit"]:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+  box-shadow: 0 6px 24px rgba(37, 99, 235, 0.5);
 }
 
 .join-error {
-  color: #b91c1c;
+  background: rgba(225, 29, 72, 0.15);
+  border: 1px solid rgba(225, 29, 72, 0.35);
+  color: #fca5a5;
   font-size: 0.82rem;
   font-weight: 600;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
 }
+
 
 .left-rail {
   border-right: 1px solid #cbd5e1;

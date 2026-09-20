@@ -3,6 +3,9 @@ import { io, Socket } from 'socket.io-client';
 import { ActiveConnection, ChatMessageItem, RoomZone, UserPresence } from './types/cosmos';
 import { AIMatchmakerModal } from './components/ai/AIMatchmakerModal';
 import { useMatchmakerStore } from './store/useMatchmakerStore';
+import { useAuthStore } from './store/useAuthStore';
+import { AuthModal } from './components/auth/AuthModal';
+import { ProfileModal } from './components/auth/ProfileModal';
 import './App.css';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:8000';
@@ -21,25 +24,76 @@ interface RemotePeerItem {
   stream?: MediaStream;
 }
 
-// 1. Dedicated Remote Video Tile Component
+// 1. Dedicated Remote Video Tile Component (Auto-binding & Autoplay resilient)
 const RemoteVideoTile: React.FC<{ peer: RemotePeerItem }> = ({ peer }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const bindVideoRef = (node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    if (node && peer.stream) {
+      if (node.srcObject !== peer.stream) {
+        node.srcObject = peer.stream;
+      }
+      node.play().then(() => setIsPlaying(true)).catch(() => {
+        if (node) {
+          node.muted = true;
+          node.play().then(() => setIsPlaying(true)).catch(() => {});
+        }
+      });
+    }
+  };
 
   useEffect(() => {
-    if (videoRef.current && peer.stream) {
-      videoRef.current.srcObject = peer.stream;
-      videoRef.current.play().catch(() => {});
-    }
+    const videoEl = videoRef.current;
+    if (!peer.stream) return;
+
+    const syncStream = () => {
+      if (videoRef.current && peer.stream) {
+        if (videoRef.current.srcObject !== peer.stream) {
+          videoRef.current.srcObject = peer.stream;
+        }
+        videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {
+          if (videoRef.current) {
+            videoRef.current.muted = true;
+            videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+          }
+        });
+      }
+    };
+
+    syncStream();
+
+    peer.stream.addEventListener('addtrack', syncStream);
+    peer.stream.addEventListener('removetrack', syncStream);
+    peer.stream.getVideoTracks().forEach((t) => {
+      t.addEventListener('unmute', syncStream);
+      t.addEventListener('mute', syncStream);
+    });
+
+    return () => {
+      peer.stream?.removeEventListener('addtrack', syncStream);
+      peer.stream?.removeEventListener('removetrack', syncStream);
+    };
   }, [peer.stream]);
 
   return (
     <div className="video-tile">
       {peer.stream ? (
         <video
-          ref={videoRef}
+          ref={bindVideoRef}
           autoPlay
           playsInline
-          onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+          onLoadedMetadata={() => {
+            videoRef.current?.play().then(() => setIsPlaying(true)).catch(() => {
+              if (videoRef.current) {
+                videoRef.current.muted = true;
+                videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+              }
+            });
+          }}
+          onPlaying={() => setIsPlaying(true)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
       ) : (
         <div className="video-tile-avatar">
@@ -48,7 +102,9 @@ const RemoteVideoTile: React.FC<{ peer: RemotePeerItem }> = ({ peer }) => {
       )}
       <div className="video-tile-name">
         <span>{peer.name}</span>
-        <span style={{ fontSize: '0.65rem', color: '#4ade80' }}>● Connected</span>
+        <span style={{ fontSize: '0.65rem', color: isPlaying ? '#4ade80' : '#38bdf8' }}>
+          {isPlaying ? '● Live' : '● Connected'}
+        </span>
       </div>
     </div>
   );
@@ -64,9 +120,21 @@ const LocalVideoTile: React.FC<{
 }> = ({ stream, name, avatarEmoji, isCamOn, isMicOn }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  const bindVideoRef = (node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    if (node && stream && isCamOn) {
+      if (node.srcObject !== stream) {
+        node.srcObject = stream;
+      }
+      node.play().catch(() => {});
+    }
+  };
+
   useEffect(() => {
     if (videoRef.current && stream && isCamOn) {
-      videoRef.current.srcObject = stream;
+      if (videoRef.current.srcObject !== stream) {
+        videoRef.current.srcObject = stream;
+      }
       videoRef.current.play().catch(() => {});
     }
   }, [stream, isCamOn]);
@@ -75,11 +143,12 @@ const LocalVideoTile: React.FC<{
     <div className="video-tile self-video">
       {isCamOn && stream ? (
         <video
-          ref={videoRef}
+          ref={bindVideoRef}
           autoPlay
           playsInline
           muted
           onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
       ) : (
         <div className="video-tile-avatar">
@@ -97,6 +166,17 @@ const LocalVideoTile: React.FC<{
 };
 
 export const App: React.FC = () => {
+  // Auth Store Integration & State
+  const { user, isAuthenticated, initAuth, logout } = useAuthStore();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [authModalDefaultMode, setAuthModalDefaultMode] = useState<'login' | 'register'>('login');
+  const [entranceTab, setEntranceTab] = useState<'signin' | 'register' | 'guest'>('signin');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [inlineAuthError, setInlineAuthError] = useState('');
+  const [inlineAuthLoading, setInlineAuthLoading] = useState(false);
+
   // Join state
   const [joined, setJoined] = useState(false);
   const [name, setName] = useState('');
@@ -161,6 +241,51 @@ export const App: React.FC = () => {
 
   const { openMatchmaker } = useMatchmakerStore();
 
+  // Initialize Auth on component mount
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
+
+  // Sync Pilot name and avatar with authenticated user
+  useEffect(() => {
+    if (user) {
+      if (user.profile?.display_name || user.username) {
+        setName(user.profile?.display_name || user.username);
+      }
+      if (user.profile?.avatar_emoji) {
+        setSelectedAvatar(user.profile.avatar_emoji);
+      }
+    }
+  }, [user]);
+
+  const handleProfileUpdated = (updatedName: string, updatedAvatar: string) => {
+    setName(updatedName);
+    setSelectedAvatar(updatedAvatar);
+    if (socketRef.current) {
+      socketRef.current.emit('user:update-profile', {
+        name: updatedName,
+        avatarEmoji: updatedAvatar,
+      });
+    }
+  };
+
+  const handleInlineLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!loginEmail.trim() || !loginPassword) {
+      setInlineAuthError('Please enter your email and password.');
+      return;
+    }
+    setInlineAuthError('');
+    setInlineAuthLoading(true);
+    try {
+      await useAuthStore.getState().login({ email: loginEmail.trim(), password: loginPassword });
+      setInlineAuthLoading(false);
+    } catch (err: any) {
+      setInlineAuthError(err.message || 'Login failed.');
+      setInlineAuthLoading(false);
+    }
+  };
+
   const drainIceCandidates = async (userId: string, pc: RTCPeerConnection) => {
     const queue = iceCandidateQueueRef.current[userId] || [];
     for (const cand of queue) {
@@ -181,8 +306,11 @@ export const App: React.FC = () => {
   // Connect to backend via Socket.IO
   const handleJoin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!name.trim()) {
-      setJoinError('Please enter a pilot callsign/name.');
+    const finalName = name.trim() || user?.profile?.display_name || user?.username;
+    const finalAvatar = selectedAvatar || user?.profile?.avatar_emoji || '👨‍🚀';
+
+    if (!finalName) {
+      setJoinError('Please enter a pilot callsign or sign in.');
       return;
     }
 
@@ -201,8 +329,8 @@ export const App: React.FC = () => {
       socket.emit(
         'user:register',
         {
-          name: name.trim(),
-          avatarEmoji: selectedAvatar,
+          name: finalName,
+          avatarEmoji: finalAvatar,
           position: { x: myPosRef.current.x, y: myPosRef.current.y },
         },
         (res: any) => {
@@ -751,12 +879,15 @@ export const App: React.FC = () => {
     return () => cancelAnimationFrame(animId);
   }, [joined, users, proximityRadius, roomZones, selectedAvatar, name, worldDim, mapZoom, mapPan, reactions, me]);
 
-  // Helper to generate a 30fps Live Virtual Animated HD Camera Stream
+  // Helper to generate a 30fps Live Virtual Animated HD Camera Stream (For 2nd Tab / Physical Webcam Lock)
   const createVirtualLiveCameraStream = (avatar: string, pilotName: string) => {
     const canvas = document.createElement('canvas');
-    canvas.width = 480;
-    canvas.height = 360;
+    canvas.width = 640;
+    canvas.height = 480;
     const ctx = canvas.getContext('2d');
+
+    const stream = canvas.captureStream(30);
+    const vTrack = stream.getVideoTracks()[0];
 
     let frame = 0;
     const draw = () => {
@@ -764,63 +895,88 @@ export const App: React.FC = () => {
       frame++;
 
       // Gradient space background
-      const grad = ctx.createLinearGradient(0, 0, 480, 360);
-      grad.addColorStop(0, '#0f172a');
+      const grad = ctx.createLinearGradient(0, 0, 640, 480);
+      grad.addColorStop(0, '#090d16');
       grad.addColorStop(0.5, '#1e1b4b');
-      grad.addColorStop(1, '#020617');
+      grad.addColorStop(1, '#030712');
       ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 480, 360);
+      ctx.fillRect(0, 0, 640, 480);
 
-      // Glowing animated orbital circle
-      const pulse = Math.sin(frame * 0.08) * 8;
+      // Starfield background
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 24; i++) {
+        const sx = (i * 73 + frame * 0.8) % 640;
+        const sy = (i * 47) % 480;
+        const alpha = Math.abs(Math.sin(frame * 0.05 + i));
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+      ctx.globalAlpha = 1.0;
+
+      // Glowing animated orbital rings
+      const pulse = Math.sin(frame * 0.08) * 10;
       ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(240, 150, 68 + pulse, 0, Math.PI * 2);
+      ctx.arc(320, 200, 85 + pulse, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#818cf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(320, 200, 110, 45 + pulse * 0.5, frame * 0.03, 0, Math.PI * 2);
       ctx.stroke();
 
       // Avatar emoji
-      ctx.font = '76px serif';
+      ctx.font = '96px serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(avatar || '🧑‍🚀', 240, 150);
+      ctx.fillText(avatar || '👨‍🚀', 320, 200);
 
       // Live status badge
       ctx.fillStyle = '#22c55e';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.fillText('● LIVE VIRTUAL CAMERA', 240, 248);
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText('● LIVE VIRTUAL CAMERA', 320, 335);
 
+      // Pilot Callsign
       ctx.fillStyle = '#f8fafc';
-      ctx.font = 'bold 16px sans-serif';
-      ctx.fillText(pilotName || 'Pilot', 240, 276);
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText(pilotName || 'Cosmos Pilot', 320, 375);
 
       // Audio waveform animation
       ctx.fillStyle = '#38bdf8';
-      for (let i = 0; i < 9; i++) {
-        const h = Math.abs(Math.sin(frame * 0.15 + i * 0.5)) * 18 + 4;
-        ctx.fillRect(240 - 45 + i * 10, 315 - h, 6, h);
+      for (let i = 0; i < 11; i++) {
+        const h = Math.abs(Math.sin(frame * 0.15 + i * 0.4)) * 24 + 4;
+        ctx.fillRect(320 - 55 + i * 10, 430 - h, 7, h);
+      }
+
+      // Explicitly request frame update to pump stream over WebRTC
+      if (vTrack && (vTrack as any).requestFrame) {
+        try {
+          (vTrack as any).requestFrame();
+        } catch {}
       }
     };
 
     draw();
-    const timer = setInterval(draw, 1000 / 30); // 30 FPS active stream
+    const timer = setInterval(draw, 1000 / 30);
 
-    const stream = canvas.captureStream(30);
-
-    // Attach a silent audio track to guarantee full AV WebRTC negotiation
+    // Silent audio carrier track for complete AV WebRTC negotiation
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
       const osc = audioCtx.createOscillator();
       const dst = audioCtx.createMediaStreamDestination();
       const gain = audioCtx.createGain();
-      gain.gain.value = 0.001;
+      gain.gain.value = 0.0001;
       osc.connect(gain);
       gain.connect(dst);
       osc.start();
       dst.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
     } catch {}
 
-    const vTrack = stream.getVideoTracks()[0];
     if (vTrack) {
       const origStop = vTrack.stop.bind(vTrack);
       vTrack.stop = () => {
@@ -898,7 +1054,7 @@ export const App: React.FC = () => {
     try {
       const stream = await setupLocalMedia();
       let pc = peerConnectionsRef.current[targetUserId];
-      
+
       if (!pc || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
         pc = new RTCPeerConnection({
           iceServers: [
@@ -913,13 +1069,25 @@ export const App: React.FC = () => {
         });
 
         pc.ontrack = (event) => {
-          const remoteStream = event.streams[0] || new MediaStream([event.track]);
+          const allTracks = pc.getReceivers().map((r) => r.track).filter(Boolean) as MediaStreamTrack[];
+          const combinedStream = new MediaStream(
+            allTracks.length > 0 ? allTracks : (event.streams[0] ? event.streams[0].getTracks() : [event.track])
+          );
+
           setRemotePeers((prev) => {
             const exists = prev.some((p) => p.userId === targetUserId);
             if (exists) {
-              return prev.map((p) => (p.userId === targetUserId ? { ...p, stream: remoteStream } : p));
+              return prev.map((p) => (p.userId === targetUserId ? { ...p, stream: combinedStream } : p));
             }
-            return [...prev, { userId: targetUserId, name: targetName, avatarEmoji: targetAvatar, stream: remoteStream }];
+            return [
+              ...prev,
+              {
+                userId: targetUserId,
+                name: targetName,
+                avatarEmoji: targetAvatar,
+                stream: combinedStream,
+              },
+            ];
           });
         };
 
@@ -984,13 +1152,25 @@ export const App: React.FC = () => {
         });
 
         pc.ontrack = (event) => {
-          const remoteStream = event.streams[0] || new MediaStream([event.track]);
+          const allTracks = pc.getReceivers().map((r) => r.track).filter(Boolean) as MediaStreamTrack[];
+          const combinedStream = new MediaStream(
+            allTracks.length > 0 ? allTracks : (event.streams[0] ? event.streams[0].getTracks() : [event.track])
+          );
+
           setRemotePeers((prev) => {
             const exists = prev.some((p) => p.userId === targetUserId);
             if (exists) {
-              return prev.map((p) => (p.userId === targetUserId ? { ...p, stream: remoteStream } : p));
+              return prev.map((p) => (p.userId === targetUserId ? { ...p, stream: combinedStream } : p));
             }
-            return [...prev, { userId: targetUserId, name: targetName, avatarEmoji: targetAvatar, stream: remoteStream }];
+            return [
+              ...prev,
+              {
+                userId: targetUserId,
+                name: targetName,
+                avatarEmoji: targetAvatar,
+                stream: combinedStream,
+              },
+            ];
           });
         };
 
@@ -1134,111 +1314,363 @@ export const App: React.FC = () => {
 
   return (
     <>
-      {/* 1. Join Modal Overlay if not in Cosmos */}
+      {/* 1. Join / Auth Overlay if not in Cosmos */}
       {!joined && (
         <div className="join-overlay">
-          <form onSubmit={handleJoin} className="join-card">
-            <h2>Join Virtual Cosmos</h2>
-            <p>Select your pilot avatar and callsign to enter the 2D spatial realm.</p>
-
-            <div style={{ display: 'flex', gap: '0.4rem', margin: '0.5rem 0' }}>
-              {ALLOWED_AVATARS.map((av) => (
-                <button
-                  type="button"
-                  key={av}
-                  onClick={() => setSelectedAvatar(av)}
-                  style={{
-                    fontSize: '1.4rem',
-                    padding: '0.3rem',
-                    borderRadius: '8px',
-                    border: selectedAvatar === av ? '2px solid #2563eb' : '1px solid #cbd5e1',
-                    background: selectedAvatar === av ? '#dbeafe' : '#f8fafc',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {av}
-                </button>
-              ))}
+          <div className="join-card">
+            {/* Header */}
+            <div className="flex items-center gap-3 pb-2 border-b border-slate-700/60">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-xl shadow-lg shadow-blue-500/20 shrink-0">
+                🌌
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white tracking-tight">Virtual Cosmos</h2>
+                <p className="text-[11px] text-slate-400">
+                  {isAuthenticated ? 'Authenticated Pilot Session' : '2D Spatial Proximity & AI Matchmaking Engine'}
+                </p>
+              </div>
             </div>
 
-            <input
-              type="text"
-              required
-              placeholder="Enter your pilot callsign..."
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+            {isAuthenticated && user ? (
+              /* Authenticated Pilot Card */
+              <div className="space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600/30 to-purple-600/30 border border-blue-500/40 flex items-center justify-center text-3xl shadow-inner shrink-0">
+                    {user.profile?.avatar_emoji || selectedAvatar || '👨‍🚀'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-extrabold text-white truncate">
+                        {user.profile?.display_name || user.username}
+                      </h3>
+                      <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-blue-950 text-blue-300 border border-blue-800 shrink-0">
+                        JWT Verified
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 truncate">@{user.username} • {user.email}</p>
+                    {user.profile?.bio && (
+                      <p className="text-[11px] text-slate-300 mt-1 line-clamp-1 italic">
+                        "{user.profile.bio}"
+                      </p>
+                    )}
+                  </div>
+                </div>
 
-            {joinError && <div className="join-error">{joinError}</div>}
+                {user.profile?.skills && user.profile.skills.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {user.profile.skills.slice(0, 5).map((sk) => (
+                      <span
+                        key={sk}
+                        className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 font-medium"
+                      >
+                        ⚡ {sk}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
-            <button type="submit" style={{ marginTop: '0.5rem' }}>
-              Enter Cosmos
-            </button>
-          </form>
+                {joinError && <div className="join-error">{joinError}</div>}
+
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleJoin()}
+                    className="w-full py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold rounded-xl text-sm shadow-xl shadow-blue-500/30 transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+                  >
+                    <span>🚀 Enter Cosmos as {user.profile?.display_name || user.username}</span>
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowProfileModal(true)}
+                      className="py-2 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition cursor-pointer"
+                    >
+                      ✏️ Edit Profile & Skills
+                    </button>
+                    <button
+                      type="button"
+                      onClick={logout}
+                      className="py-2 bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/80 text-rose-300 text-xs font-semibold rounded-xl transition cursor-pointer"
+                    >
+                      🚪 Sign Out / Switch
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Unauthenticated: Mode Tabs (Sign In / Demo / Guest) */
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 p-1 bg-slate-950/80 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setEntranceTab('signin')}
+                    className={`py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      entranceTab === 'signin'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>⚡</span> Sign In / Demo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEntranceTab('guest')}
+                    className={`py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      entranceTab === 'guest'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🚀</span> Quick Guest Mode
+                  </button>
+                </div>
+
+                {entranceTab === 'signin' ? (
+                  <form onSubmit={handleInlineLogin} className="space-y-3">
+                    {/* Quick Demo Accounts Fast Fill */}
+                    <div>
+                      <div className="text-[11px] font-semibold text-slate-400 mb-1.5 flex items-center justify-between">
+                        <span>⚡ 1-Click Demo Accounts:</span>
+                        <span className="text-[10px] text-blue-400">Pre-seeded vector profiles</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { name: 'Aryan (Full-Stack)', email: 'aryan@cosmos.io', password: 'Password123!', avatar: '👨‍🚀' },
+                          { name: 'Elena (AI pgvector)', email: 'elena@cosmos.io', password: 'Password123!', avatar: '🤖' },
+                          { name: 'Marcus (Spatial RTC)', email: 'marcus@cosmos.io', password: 'Password123!', avatar: '🛰️' },
+                        ].map((acc) => (
+                          <button
+                            type="button"
+                            key={acc.email}
+                            onClick={() => {
+                              setLoginEmail(acc.email);
+                              setLoginPassword(acc.password);
+                              setInlineAuthError('');
+                            }}
+                            className="px-2 py-1.5 bg-slate-950/90 hover:bg-slate-800 border border-slate-800 hover:border-blue-500 rounded-xl text-left transition group cursor-pointer"
+                          >
+                            <div className="flex items-center gap-1 text-xs font-bold text-slate-200 group-hover:text-blue-400 truncate">
+                              <span>{acc.avatar}</span>
+                              <span className="truncate">{acc.name.split(' ')[0]}</span>
+                            </div>
+                            <div className="text-[9px] text-slate-500 truncate">{acc.name.split(' ')[1]}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {inlineAuthError && (
+                      <div className="p-2.5 bg-rose-950/70 border border-rose-800 text-rose-200 text-xs rounded-xl flex items-center gap-2">
+                        <span>⚠️</span>
+                        <span>{inlineAuthError}</span>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="e.g. aryan@cosmos.io"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+                      <input
+                        type="password"
+                        required
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                      />
+                    </div>
+
+                    <div className="pt-1 flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={inlineAuthLoading}
+                        className="flex-1 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-blue-500/25 transition flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        {inlineAuthLoading ? 'Authenticating...' : '⚡ Sign In to Cosmos'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthModalDefaultMode('register');
+                          setShowAuthModal(true);
+                        }}
+                        className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold rounded-xl text-xs transition cursor-pointer"
+                      >
+                        ✨ Register
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={handleJoin} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                        Choose Guest Avatar
+                      </label>
+                      <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                        {ALLOWED_AVATARS.map((av) => (
+                          <button
+                            type="button"
+                            key={av}
+                            onClick={() => setSelectedAvatar(av)}
+                            className={`text-xl p-2 rounded-xl border transition shrink-0 cursor-pointer ${
+                              selectedAvatar === av
+                                ? 'bg-blue-600/30 border-blue-500 scale-110 shadow-lg shadow-blue-500/20'
+                                : 'bg-slate-950 border-slate-800 hover:bg-slate-800 text-slate-300'
+                            }`}
+                          >
+                            {av}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Pilot Callsign / Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Enter your pilot callsign..."
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                      />
+                    </div>
+
+                    {joinError && <div className="join-error">{joinError}</div>}
+
+                    <div className="pt-1">
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-blue-500/25 transition flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        🚀 Enter Cosmos as Guest
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* 2. Main Gather-style Shell */}
       <div className="gather-shell">
         {/* Left Navigation Rail */}
-        <aside className="left-rail">
-          <div className="brand-block">
-            <h1>VIRTUAL COSMOS</h1>
-            <p>Live Spatial World</p>
-          </div>
+        <aside className="left-rail flex flex-col justify-between">
+          <div>
+            <div className="brand-block">
+              <h1>VIRTUAL COSMOS</h1>
+              <p>Live Spatial World</p>
+            </div>
 
-          <input
-            type="text"
-            className="search-box"
-            placeholder="Search channels or pilots..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-
-          <div className="menu-group">
-            <h2>CHANNELS</h2>
-            {CHANNELS.map((ch) => (
-              <button
-                key={ch.id}
-                onClick={() => setActiveChannel(ch.id)}
-                className={`menu-item ${activeChannel === ch.id ? 'active' : ''}`}
-              >
-                {ch.name}
-              </button>
-            ))}
-          </div>
-
-          {/* AI Matchmaker Trigger */}
-          <div className="menu-group" style={{ marginTop: '0.4rem' }}>
-            <h2>AI DISCOVERY</h2>
-            <button
-              onClick={openMatchmaker}
-              className="menu-item"
-              style={{
-                background: 'linear-gradient(135deg, #eef2ff, #f3e8ff)',
-                borderColor: '#c084fc',
-                fontWeight: 600,
-                color: '#7e22ce',
-              }}
-            >
-              🤖 AI Matchmaker (pgvector)
-            </button>
-          </div>
-
-          <div className="member-list">
-            <h2>ONLINE PILOTS ({users.length})</h2>
-            {filteredMembers.map((member) => {
-              const isMe = member.socketId === socketRef.current?.id;
-              return (
-                <div key={member.socketId} className="member-row">
-                  <div className="avatar-chip">{member.avatarEmoji || '👤'}</div>
-                  <div>
-                    <h3>{member.name} {isMe ? '(You)' : ''}</h3>
-                    <p>{member.roomName || 'Orbiting'}</p>
+            {/* Pilot Identity / Auth Quick Widget */}
+            <div className="mt-2.5 p-2 rounded-xl bg-slate-900/90 border border-slate-700/80 text-white shadow-sm">
+              {isAuthenticated && user ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xl shrink-0">{user.profile?.avatar_emoji || selectedAvatar || '👨‍🚀'}</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-white truncate">
+                        {user.profile?.display_name || user.username}
+                      </div>
+                      <div className="text-[10px] text-blue-400 truncate">@{user.username}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowProfileModal(true)}
+                      title="Edit Profile & Skills"
+                      className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer text-xs"
+                    >
+                      ⚙️
+                    </button>
+                    <button
+                      onClick={logout}
+                      title="Sign Out"
+                      className="p-1 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 transition cursor-pointer text-xs"
+                    >
+                      🚪
+                    </button>
                   </div>
                 </div>
-              );
-            })}
+              ) : (
+                <button
+                  onClick={() => {
+                    setAuthModalDefaultMode('login');
+                    setShowAuthModal(true);
+                  }}
+                  className="w-full py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-lg text-[11px] shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>🔑</span>
+                  <span>Sign In / Create Account</span>
+                </button>
+              )}
+            </div>
+
+            <input
+              type="text"
+              className="search-box mt-2.5"
+              placeholder="Search channels or pilots..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+
+            <div className="menu-group">
+              <h2>CHANNELS</h2>
+              {CHANNELS.map((ch) => (
+                <button
+                  key={ch.id}
+                  onClick={() => setActiveChannel(ch.id)}
+                  className={`menu-item ${activeChannel === ch.id ? 'active' : ''}`}
+                >
+                  {ch.name}
+                </button>
+              ))}
+            </div>
+
+            {/* AI Matchmaker Trigger */}
+            <div className="menu-group" style={{ marginTop: '0.4rem' }}>
+              <h2>AI DISCOVERY</h2>
+              <button
+                onClick={openMatchmaker}
+                className="menu-item"
+                style={{
+                  background: 'linear-gradient(135deg, #eef2ff, #f3e8ff)',
+                  borderColor: '#c084fc',
+                  fontWeight: 600,
+                  color: '#7e22ce',
+                }}
+              >
+                🤖 AI Matchmaker (pgvector)
+              </button>
+            </div>
+
+            <div className="member-list">
+              <h2>ONLINE PILOTS ({users.length})</h2>
+              {filteredMembers.map((member) => {
+                const isMe = member.socketId === socketRef.current?.id;
+                return (
+                  <div key={member.socketId} className="member-row">
+                    <div className="avatar-chip">{member.avatarEmoji || '👤'}</div>
+                    <div>
+                      <h3>{member.name} {isMe ? '(You)' : ''}</h3>
+                      <p>{member.roomName || 'Orbiting'}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </aside>
 
@@ -1251,6 +1683,30 @@ export const App: React.FC = () => {
             </div>
 
             <div className="stage-actions">
+              {/* Account Quick Button */}
+              {isAuthenticated && user ? (
+                <button
+                  onClick={() => setShowProfileModal(true)}
+                  className="px-2.5 py-1 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition cursor-pointer"
+                  title="View Pilot Profile"
+                >
+                  <span>{user.profile?.avatar_emoji || selectedAvatar || '👨‍🚀'}</span>
+                  <span className="hidden sm:inline">{user.profile?.display_name || user.username}</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setAuthModalDefaultMode('login');
+                    setShowAuthModal(true);
+                  }}
+                  className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-500 border border-blue-500 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition cursor-pointer"
+                  title="Sign In to Cosmos"
+                >
+                  <span>🔑</span>
+                  <span>Sign In</span>
+                </button>
+              )}
+
               <button
                 onClick={toggleMic}
                 className={isMicOn ? 'active' : ''}
@@ -1569,6 +2025,20 @@ export const App: React.FC = () => {
 
       {/* AI Vector Matchmaker Modal */}
       <AIMatchmakerModal />
+
+      {/* Auth Modal (Sign In / Register) */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        defaultMode={authModalDefaultMode}
+      />
+
+      {/* Profile & Account Modal */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        onAvatarOrNameChange={handleProfileUpdated}
+      />
     </>
   );
 };
